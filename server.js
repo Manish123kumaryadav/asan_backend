@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 
 const color=require('colors');
+const sequelize = require('./config/database');
 const app = express();
 
 
@@ -27,6 +28,19 @@ const PORT = process.env.PORT || 8000;
 
 //  DB check and  server start
 
-  app.listen(PORT, () => {
-    console.log(`server running on port ${PORT}`.bgYellow);
-  });
+async function startServer() {
+  try {
+    await sequelize.authenticate();
+    console.log('Database connection has been established successfully.'.bgGreen);
+
+    app.listen(PORT, () => {
+      console.log(`server running on port ${PORT}`.bgYellow);
+    });
+  } catch (error) {
+    console.error('Unable to connect to the database:');
+    console.error(error);
+    process.exit(1);
+  }
+}
+
+startServer();
