@@ -28,7 +28,18 @@ app.use("/api", todoroute); // routes mounted AFTER middleware
 
 
 
-const PORT = process.env.PORT || 8000;
+function getAppPort() {
+  const configuredPort = process.env.APP_PORT || process.env.PORT;
+
+  if (configuredPort === '5432' || configuredPort === '6543') {
+    console.warn(`Ignoring PORT=${configuredPort}; that looks like a database port. Using 8080 for HTTP.`);
+    return 8080;
+  }
+
+  return configuredPort || 8000;
+}
+
+const PORT = getAppPort();
 
 //  DB check and server start
 
