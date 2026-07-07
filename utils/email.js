@@ -1,29 +1,30 @@
-const nodemailer = require("nodemailer");
+const nodemailer = require('nodemailer');
+const { resolve4 } = require('dns').promises;
 
 function hasMailConfig() {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
 
 function escapeHtml(value) {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function buildTemplate({ otp, name, purpose }) {
-  const appName = process.env.APP_NAME || "Asanway";
-  const safeName = escapeHtml(name || "User");
+  const appName = process.env.APP_NAME || 'Asanway';
+  const safeName = escapeHtml(name || 'User');
   const safeOtp = escapeHtml(otp);
-  const isReset = purpose === "forgot-password";
+  const isReset = purpose === 'forgot-password';
 
   return `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>${isReset ? "Password Reset Code" : "Verification Code"}</title>
+  <title>${isReset ? 'Password Reset Code' : 'Verification Code'}</title>
   <style>
     body { font-family: Arial, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; }
     .container { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
@@ -39,11 +40,11 @@ function buildTemplate({ otp, name, purpose }) {
   <div class="container">
     <div class="header">
       <h1>${escapeHtml(appName)}</h1>
-      <p>${isReset ? "Password Reset Request" : "Your verification code"}</p>
+      <p>${isReset ? 'Password Reset Request' : 'Your verification code'}</p>
     </div>
     <div class="content">
       <p>Hi ${safeName},</p>
-      <p>${isReset ? "We received a request to reset your password. Use this code to proceed:" : "Your verification code is:"}</p>
+      <p>${isReset ? 'We received a request to reset your password. Use this code to proceed:' : 'Your verification code is:'}</p>
       <div class="otp-box">
         <div class="otp-code">${safeOtp}</div>
       </div>
@@ -58,14 +59,37 @@ function buildTemplate({ otp, name, purpose }) {
 </html>`;
 }
 
-function createTransporter() {
+/**
+ * Resolves a hostname to an IPv4 address using dns.resolve4().
+ * This bypasses the OS/Railway DNS stack that returns IPv6 first,
+ * so nodemailer always connects to an IPv4 address — no ENETUNREACH.
+ */
+async function resolveToIPv4(hostname) {
+  try {
+    const addresses = await resolve4(hostname);
+    if (addresses && addresses.length > 0) {
+      console.log(`SMTP: resolved ${hostname} → ${addresses[0]} (IPv4)`);
+      return addresses[0];
+    }
+  } catch (err) {
+    console.warn(`SMTP: dns.resolve4 failed for ${hostname} (${err.message}), using hostname directly`);
+  }
+  return hostname; // fallback to hostname if resolve fails
+}
+
+async function createTransporter() {
+  const hostname = process.env.SMTP_HOST || 'smtp.gmail.com';
+  // Pre-resolve to IPv4 so nodemailer never does its own DNS lookup
+  // that could return an IPv6 address unreachable on Railway.
+  const host = await resolveToIPv4(hostname);
+
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
+    host,
     port: Number(process.env.SMTP_PORT || 587),
-    // SMTP_SECURE='false' means no TLS wrap on connect (STARTTLS is used instead)
+    // secure=false means use STARTTLS (correct for port 587)
     secure: process.env.SMTP_SECURE === 'true',
     requireTLS: true,
-    family: 4, // force IPv4 socket after DNS resolves
+    family: 4, // belt-and-suspenders: also force IPv4 at socket level
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
@@ -81,13 +105,13 @@ async function sendOtpEmail(email, otp, purpose, name) {
     return { sent: false };
   }
 
-  const appName = process.env.APP_NAME || "Asanway";
-  const isReset = purpose === "forgot-password";
+  const appName = process.env.APP_NAME || 'Asanway';
+  const isReset = purpose === 'forgot-password';
   const subject = isReset
     ? `${appName} password reset OTP`
     : `${appName} login OTP`;
 
-  const transporter = createTransporter();
+  const transporter = await createTransporter(); // now async
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to: email,
