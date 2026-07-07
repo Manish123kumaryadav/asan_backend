@@ -1,15 +1,7 @@
 const nodemailer = require('nodemailer');
 const { resolve4 } = require('dns').promises;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function hasResendConfig() {
-  return Boolean(process.env.RESEND_API_KEY);
-}
-
-function hasSmtpConfig() {
+function hasMailConfig() {
   return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
 
@@ -67,47 +59,11 @@ function buildTemplate({ otp, name, purpose }) {
 </html>`;
 }
 
-// ---------------------------------------------------------------------------
-// Sender 1: Resend (HTTP API) — use this on Railway / any cloud host
-// Railway blocks outbound SMTP ports (587/465), but HTTP is always open.
-// Sign up free at https://resend.com → get API key → add RESEND_API_KEY env var.
-// ---------------------------------------------------------------------------
-
-async function sendViaResend(email, otp, purpose, name) {
-  const { Resend } = require('resend');
-  const resend = new Resend(process.env.RESEND_API_KEY);
-
-  const appName = process.env.APP_NAME || 'Asanway';
-  const isReset = purpose === 'forgot-password';
-  const subject = isReset
-    ? `${appName} password reset OTP`
-    : `${appName} login OTP`;
-
-  // RESEND_FROM must be a verified sender address in your Resend account.
-  // During testing you can use: onboarding@resend.dev (sends to your own email only)
-  const from = process.env.RESEND_FROM || process.env.SMTP_FROM || 'onboarding@resend.dev';
-
-  const { error } = await resend.emails.send({
-    from,
-    to: email,
-    subject,
-    html: buildTemplate({ otp, name, purpose }),
-    text: `Your OTP is ${otp}. It expires in 15 minutes.`,
-  });
-
-  if (error) {
-    throw new Error(`Resend error: ${error.message}`);
-  }
-
-  console.log(`Email sent via Resend to ${email}`);
-  return { sent: true };
-}
-
-// ---------------------------------------------------------------------------
-// Sender 2: Nodemailer SMTP — fallback for local development
-// Works locally; will timeout on Railway (port 587 is blocked by their network).
-// ---------------------------------------------------------------------------
-
+/**
+ * Resolves a hostname to an IPv4 address using dns.resolve4().
+ * This bypasses the OS/Railway DNS stack that returns IPv6 first,
+ * so nodemailer always connects to an IPv4 address — no ENETUNREACH.
+ */
 async function resolveToIPv4(hostname) {
   try {
     const addresses = await resolve4(hostname);
@@ -116,21 +72,24 @@ async function resolveToIPv4(hostname) {
       return addresses[0];
     }
   } catch (err) {
-    console.warn(`SMTP: dns.resolve4 failed for ${hostname} (${err.message}), using hostname`);
+    console.warn(`SMTP: dns.resolve4 failed for ${hostname} (${err.message}), using hostname directly`);
   }
-  return hostname;
+  return hostname; // fallback to hostname if resolve fails
 }
 
-async function sendViaSmtp(email, otp, purpose, name) {
+async function createTransporter() {
   const hostname = process.env.SMTP_HOST || 'smtp.gmail.com';
+  // Pre-resolve to IPv4 so nodemailer never does its own DNS lookup
+  // that could return an IPv6 address unreachable on Railway.
   const host = await resolveToIPv4(hostname);
 
-  const transporter = nodemailer.createTransport({
+  return nodemailer.createTransport({
     host,
     port: Number(process.env.SMTP_PORT || 587),
+    // secure=false means use STARTTLS (correct for port 587)
     secure: process.env.SMTP_SECURE === 'true',
     requireTLS: true,
-    family: 4,
+    family: 4, // belt-and-suspenders: also force IPv4 at socket level
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
@@ -139,6 +98,12 @@ async function sendViaSmtp(email, otp, purpose, name) {
     greetingTimeout: 20000,
     socketTimeout: Number(process.env.SMTP_TIMEOUT || 30000),
   });
+}
+
+async function sendOtpEmail(email, otp, purpose, name) {
+  if (!hasMailConfig()) {
+    return { sent: false };
+  }
 
   const appName = process.env.APP_NAME || 'Asanway';
   const isReset = purpose === 'forgot-password';
@@ -146,6 +111,7 @@ async function sendViaSmtp(email, otp, purpose, name) {
     ? `${appName} password reset OTP`
     : `${appName} login OTP`;
 
+  const transporter = await createTransporter(); // now async
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to: email,
@@ -154,26 +120,9 @@ async function sendViaSmtp(email, otp, purpose, name) {
     text: `Your OTP is ${otp}. It expires in 15 minutes.`,
   });
 
-  console.log(`Email sent via SMTP to ${email}`);
   return { sent: true };
 }
 
-// ---------------------------------------------------------------------------
-// Main export — prefers Resend (cloud-safe), falls back to SMTP (local dev)
-// ---------------------------------------------------------------------------
-
-async function sendOtpEmail(email, otp, purpose, name) {
-  if (hasResendConfig()) {
-    return sendViaResend(email, otp, purpose, name);
-  }
-
-  if (hasSmtpConfig()) {
-    return sendViaSmtp(email, otp, purpose, name);
-  }
-
-  // No mail config at all — return OTP in response (dev/testing mode)
-  console.warn('No email config found (RESEND_API_KEY or SMTP_*). OTP not sent.');
-  return { sent: false };
-}
-
-module.exports = { sendOtpEmail };
+module.exports = {
+  sendOtpEmail,
+};
