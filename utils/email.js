@@ -59,18 +59,26 @@ function buildTemplate({ otp, name, purpose }) {
 }
 
 function createTransporter() {
+  // Use smtp4.gmail.com (IPv4-only endpoint) to avoid ENETUNREACH IPv6 errors on Railway.
+  // Falls back to SMTP_HOST env var if set to something other than smtp.gmail.com.
+  const smtpHost = process.env.SMTP_HOST === 'smtp.gmail.com'
+    ? 'smtp4.gmail.com'
+    : (process.env.SMTP_HOST || 'smtp4.gmail.com');
+
   return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
+    host: smtpHost,
     port: Number(process.env.SMTP_PORT || 587),
-    secure: process.env.SMTP_SECURE === "true",
-    family: 4,
+    // SMTP_SECURE='false' means no TLS wrap on connect (STARTTLS is used instead)
+    secure: process.env.SMTP_SECURE === 'true',
+    requireTLS: true,
+    family: 4, // force IPv4 socket
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
-    connectionTimeout: Number(process.env.SMTP_TIMEOUT || 20000),
-    greetingTimeout: Number(process.env.SMTP_TIMEOUT || 20000),
-    socketTimeout: Number(process.env.SMTP_TIMEOUT || 20000),
+    connectionTimeout: Number(process.env.SMTP_TIMEOUT || 30000),
+    greetingTimeout: 20000,
+    socketTimeout: Number(process.env.SMTP_TIMEOUT || 30000),
   });
 }
 
