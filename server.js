@@ -3,6 +3,7 @@ const express = require('express');
 
 const color=require('colors');
 const sequelize = require('./config/database');
+const encryptionMiddleware = require('./middleware/encryption');
 const app = express();
 
 
@@ -24,7 +25,7 @@ app.get('/health', (req, res) => {
 
 //  Routes
 const todoroute = require('./routes/api');
-app.use("/api", todoroute); // routes mounted AFTER middleware
+app.use("/api", encryptionMiddleware, todoroute); // routes mounted AFTER middleware
 
 
 
