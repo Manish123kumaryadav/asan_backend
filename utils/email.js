@@ -68,9 +68,9 @@ function createTransporter() {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
-    connectionTimeout: 5000,
-    greetingTimeout: 5000,
-    socketTimeout: 5000,
+    connectionTimeout: Number(process.env.SMTP_TIMEOUT || 20000),
+    greetingTimeout: Number(process.env.SMTP_TIMEOUT || 20000),
+    socketTimeout: Number(process.env.SMTP_TIMEOUT || 20000),
   });
 }
 
