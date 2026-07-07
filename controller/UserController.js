@@ -1,5 +1,15 @@
 const User = require("../model/User");
 const bcrypt = require('bcryptjs');
+
+exports.getAllUsers = async (req, res) => {
+  try {
+    const users = await User.findAll();
+    res.status(200).json({ success: true, users });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 exports.createUser = async (req, res) => {
   try {
     const { name, email, password, mobile, otp, image, image_path, city, location } = req.body;
