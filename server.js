@@ -1,3 +1,7 @@
+// Force IPv4 DNS resolution globally — prevents ENETUNREACH on Railway
+// where smtp.gmail.com resolves to IPv6 by default (Node 18+).
+require('dns').setDefaultResultOrder('ipv4first');
+
 require('dotenv').config();
 const express = require('express');
 
