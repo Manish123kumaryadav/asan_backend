@@ -86,7 +86,14 @@ exports.sendLoginOtp = async (req, res) => {
     const otp = generateOtp();
     await user.update({ otp: buildOtpPayload(otp) });
 
-    const mail = await sendOtpEmail(email, otp, 'login', user.name);
+    let mail;
+    try {
+      mail = await sendOtpEmail(email, otp, 'login', user.name);
+    } catch (error) {
+      console.error('Failed to send login OTP email:', error.message || error);
+      return res.status(502).json({ success: false, message: 'Failed to send OTP email' });
+    }
+
     return res.status(200).json({
       success: true,
       message: mail.sent ? 'OTP sent successfully' : 'OTP generated successfully',
@@ -138,7 +145,14 @@ exports.sendForgotPasswordOtp = async (req, res) => {
     const otp = generateOtp();
     await user.update({ otp: buildOtpPayload(otp) });
 
-    const mail = await sendOtpEmail(email, otp, 'forgot-password', user.name);
+    let mail;
+    try {
+      mail = await sendOtpEmail(email, otp, 'forgot-password', user.name);
+    } catch (error) {
+      console.error('Failed to send password reset OTP email:', error.message || error);
+      return res.status(502).json({ success: false, message: 'Failed to send OTP email' });
+    }
+
     return res.status(200).json({
       success: true,
       message: mail.sent ? 'Password reset OTP sent successfully' : 'Password reset OTP generated successfully',
