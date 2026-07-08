@@ -119,32 +119,32 @@ function smtpAttempts() {
 }
 
 async function createTransporter({ hostname, port, secure }) {
-  // Pre-resolve to IPv4 so nodemailer never does its own DNS lookup
-  // that could return an IPv6 address unreachable on Railway.
   const host = await resolveToIPv4(hostname);
 
-return nodemailer.createTransport({
-  host,
-  port,
-  secure,
-  requireTLS: !secure,
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    requireTLS: !secure,
 
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS,
+    },
 
-  tls: {
-    servername: hostname,
-    rejectUnauthorized: false,
-  },
+    tls: {
+      servername: hostname,
+      rejectUnauthorized: false,
+    },
 
-  family: 4,
+    family: 4,
 
-  connectionTimeout: 30000,
-  greetingTimeout: 30000,
-  socketTimeout: 30000,
-});
+    connectionTimeout: 30000,
+    greetingTimeout: 30000,
+    socketTimeout: 30000,
+  });
+} // <-- Ye missing tha
+
 function encodeBase64Url(value) {
   return Buffer.from(value)
     .toString('base64')
@@ -369,4 +369,4 @@ async function sendOtpEmail(email, otp, purpose, name) {
 
 module.exports = {
   sendOtpEmail,
-};
+}
