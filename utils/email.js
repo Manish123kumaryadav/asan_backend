@@ -320,56 +320,18 @@ async function sendOtpEmail(email, otp, purpose, name) {
   try {
     // Gmail API (if configured)
     if (hasGmailApiConfig()) {
-      await sendWithGmailApi({
-        from,
-        to: email,
-        subject,
-        html,
-        text,
-      });
-
+      await sendWithGmailApi({ from, to: email, subject, html, text });
       return { sent: true, provider: 'gmail-api' };
     }
 
-  if (hasResendConfig()) {
-  await sendWithResend({
-    from,
-    to: email,
-    subject,
-    html,
-    text,
-  });
-
-  return { sent: true, provider: 'resend' };
-}
-
-const smtpResult = await sendWithSmtp({
-  from,
-  to: email,
-  subject,
-  html,
-  text,
-});
-
-return {
-  sent: true,
-  provider: smtpResult.provider,
-  port: smtpResult.port,
-};
-
-    if (isRailwayRuntime()) {
-      const error = new Error('Railway runtime cannot reach Gmail SMTP. Configure Gmail API OAuth env vars to send OTP emails over HTTPS.');
-      error.code = 'EMAIL_PROVIDER_REQUIRED';
-      throw error;
+    // Resend (if configured)
+    if (hasResendConfig()) {
+      await sendWithResend({ from, to: email, subject, html, text });
+      return { sent: true, provider: 'resend' };
     }
 
-    const smtpResult = await sendWithSmtp({
-      from,
-      to: email,
-      subject,
-      html,
-      text,
-    });
+    // Fallback: raw SMTP
+    const smtpResult = await sendWithSmtp({ from, to: email, subject, html, text });
 
     return {
       sent: true,
