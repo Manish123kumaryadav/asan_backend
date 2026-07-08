@@ -10,6 +10,8 @@ const NotificationController = require('../controller/NotificationController');
 router.post('/login', AuthController.login);
 router.post('/send-login-otp', AuthController.sendLoginOtp);
 router.post('/verify-login-otp', AuthController.verifyLoginOtp);
+router.post('/send-otp', AuthController.sendOtp);
+router.post('/verify-otp', AuthController.verifyOtp);
 router.post('/forgot-password', AuthController.sendForgotPasswordOtp);
 router.post('/reset-password', AuthController.resetPassword);
 router.get('/users', verifyToken, UserController.getAllUsers);
@@ -17,6 +19,7 @@ router.get('/users', verifyToken, UserController.getAllUsers);
 // user
 router.get('/user', verifyToken, UserController.getAllUsers);
 router.post('/user', UserController.createUser);
+router.put('/user', verifyToken, UserController.updateCurrentUser);
 router.get('/user/:id', verifyToken, UserController.getUserById);
 router.put('/user/:id', verifyToken, UserController.updateUser);
 
@@ -24,6 +27,7 @@ router.put('/user/:id', verifyToken, UserController.updateUser);
 router.get('/subscription/plans', verifyToken, SubscriptionController.plans);
 router.post('/subscription/activate', verifyToken, SubscriptionController.activate);
 router.get('/subscriber-dashboard', verifyToken, SubscriptionController.dashboard);
+router.post('/subscriber-dashboard', verifyToken, SubscriptionController.dashboard);
 
 // chat and notifications
 router.get('/chat/conversations', verifyToken, ChatController.conversations);

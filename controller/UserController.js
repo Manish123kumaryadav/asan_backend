@@ -40,11 +40,20 @@ function buildUserPayload(body, includePassword = false) {
 }
 
 function userWhere(identifier) {
-  const value = String(identifier || "");
+  const value = String(identifier || "").trim();
+  const normalized = normalizeEmail(value);
+  const hash = emailHash(normalized);
+  const conditions = [
+    { guid: value },
+    { email: normalized },
+    { email: value },
+    { email_hash: hash },
+    { email_hash: value },
+  ];
   if (/^\d+$/.test(value)) {
-    return { [Op.or]: [{ id: Number(value) }, { guid: value }] };
+    conditions.push({ id: Number(value) });
   }
-  return { guid: value };
+  return { [Op.or]: conditions };
 }
 
 exports.getAllUsers = async (req, res) => {
@@ -106,3 +115,25 @@ exports.updateUser = async (req, res) => {
   }
 };
 
+exports.updateCurrentUser = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+    const payload = buildUserPayload(req.body, false);
+    if (req.body.password) {
+      payload.password = await bcrypt.hash(req.body.password, 10);
+    }
+    payload.updated_at = new Date();
+
+    const [updated] = await User.update(payload, { where: { id: userId } });
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    const user = await User.findByPk(userId);
+    res.status(200).json({ success: true, message: 'User updated successfully', user });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
