@@ -10,12 +10,16 @@ function getEncryptionKey() {
     throw new Error("ENCRYPTION_KEY is not set");
   }
 
-  const keyBuffer = Buffer.from(key, "utf8");
-  if (keyBuffer.length !== 32) {
-    throw new Error("ENCRYPTION_KEY must be exactly 32 bytes for AES-256-CBC");
+  return crypto.createHash("sha256").update(key, "utf8").digest();
+}
+
+function getMacKey() {
+  const key = process.env.ENCRYPTION_KEY;
+  if (!key) {
+    throw new Error("ENCRYPTION_KEY is not set");
   }
 
-  return keyBuffer;
+  return crypto.createHash("sha256").update(`${key}:mac`, "utf8").digest();
 }
 
 function encode(buffer) {
@@ -33,9 +37,9 @@ function decode(value) {
 
 function createHmac(iv, data) {
   return crypto
-    .createHmac("sha256", getEncryptionKey())
-    .update(`${iv}:${data}`)
-    .digest("hex");
+    .createHmac("sha256", getMacKey())
+    .update(`${iv}.${data}`)
+    .digest("base64");
 }
 
 function isValidHmac(iv, data, hmac) {
@@ -43,8 +47,8 @@ function isValidHmac(iv, data, hmac) {
     return false;
   }
 
-  const expected = Buffer.from(createHmac(iv, data), "hex");
-  const received = Buffer.from(String(hmac), "hex");
+  const expected = Buffer.from(createHmac(iv, data), "base64");
+  const received = Buffer.from(String(hmac), "base64");
 
   return expected.length === received.length && crypto.timingSafeEqual(expected, received);
 }
@@ -59,19 +63,20 @@ function encryptPayload(payload) {
 
   return {
     encrypted: true,
+    alg: "AES-256-CBC-HMAC-SHA256",
     iv,
-    data,
-    hmac: createHmac(iv, data),
+    payload: data,
+    tag: createHmac(iv, data),
   };
 }
 
 function decryptPayload(envelope) {
   const iv = envelope.iv;
   const data = envelope.data || envelope.encryptedData || envelope.payload;
-  const hmac = envelope.hmac || envelope.hash || envelope.signature;
+  const hmac = envelope.hmac || envelope.hash || envelope.signature || envelope.tag;
 
   if (!iv || !data || !hmac) {
-    throw new Error("Encrypted payload must include iv, data and hmac");
+    throw new Error("Encrypted payload must include iv, payload and tag");
   }
 
   if (!isValidHmac(iv, data, hmac)) {

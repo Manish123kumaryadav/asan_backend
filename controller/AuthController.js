@@ -24,20 +24,29 @@ function validateOtpPayload(savedOtp, otp) {
 
 function createToken(user) {
   return jwt.sign(
-    { id: user.id, role_id: user.role_id, name: user.name, email: user.email },
+    { id: user.id, role_id: user.role_id || 2, name: user.name, email: user.email },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN || '1h' }
+    { expiresIn: process.env.JWT_EXPIRES_IN || '7d' }
   );
 }
 
 function publicUser(user) {
   return {
-    id: user.id,
+    id: String(user.id),
     name: user.name,
     email: user.email,
-    role_id: user.role_id
+    phone: user.phone || user.mobile || '',
+    location: user.location || user.city || '',
+    avatarUrl: user.avatar_url || user.image_path || user.image || '',
+    allowCalls: user.allow_calls !== false,
+    activeAds: Number(user.active_ads || 0),
+    plan: user.plan || 'free',
+    role_id: user.role_id || 2
   };
 }
+
+exports.publicUser = publicUser;
+exports.createToken = createToken;
 
 exports.login = async (req, res) => {
   const { email, password } = req.body;
@@ -71,7 +80,7 @@ const user = await User.findOne({ where: { email } });
 }
 
 exports.sendLoginOtp = async (req, res) => {
-  const { email } = req.body;
+  const email = req.body.email ? String(req.body.email).trim().toLowerCase() : '';
 
   try {
     if (!email) {
@@ -85,6 +94,7 @@ exports.sendLoginOtp = async (req, res) => {
 
     const otp = generateOtp();
     await user.update({ otp: buildOtpPayload(otp) });
+    console.log('[OTP] login OTP generated', { email });
 
     let mail;
     try {
@@ -99,10 +109,17 @@ exports.sendLoginOtp = async (req, res) => {
       return res.status(502).json({ success: false, message: 'Failed to send OTP email' });
     }
 
+    if (!mail.sent) {
+      console.error('[OTP] login email not sent: mail service is not configured');
+      return res.status(503).json({
+        success: false,
+        message: 'Email service is not configured. Please set RESEND_API_KEY or SMTP credentials.'
+      });
+    }
+
     return res.status(200).json({
       success: true,
-      message: mail.sent ? 'OTP sent successfully' : 'OTP generated successfully',
-      ...(mail.sent ? {} : { otp })
+      message: 'OTP sent successfully'
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -135,7 +152,7 @@ exports.verifyLoginOtp = async (req, res) => {
 };
 
 exports.sendForgotPasswordOtp = async (req, res) => {
-  const { email } = req.body;
+  const email = req.body.email ? String(req.body.email).trim().toLowerCase() : '';
 
   try {
     if (!email) {
@@ -149,6 +166,7 @@ exports.sendForgotPasswordOtp = async (req, res) => {
 
     const otp = generateOtp();
     await user.update({ otp: buildOtpPayload(otp) });
+    console.log('[OTP] password reset OTP generated', { email });
 
     let mail;
     try {
@@ -163,10 +181,17 @@ exports.sendForgotPasswordOtp = async (req, res) => {
       return res.status(502).json({ success: false, message: 'Failed to send OTP email' });
     }
 
+    if (!mail.sent) {
+      console.error('[OTP] forgot password email not sent: mail service is not configured');
+      return res.status(503).json({
+        success: false,
+        message: 'Email service is not configured. Please set RESEND_API_KEY or SMTP credentials.'
+      });
+    }
+
     return res.status(200).json({
       success: true,
-      message: mail.sent ? 'Password reset OTP sent successfully' : 'Password reset OTP generated successfully',
-      ...(mail.sent ? {} : { otp })
+      message: 'Password reset OTP sent successfully'
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
@@ -174,11 +199,14 @@ exports.sendForgotPasswordOtp = async (req, res) => {
 };
 
 exports.resetPassword = async (req, res) => {
-  const { email, otp, password } = req.body;
+  const { email, otp, password, confirmPassword } = req.body;
 
   try {
     if (!email || !otp || !password) {
       return res.status(400).json({ success: false, message: 'Email, OTP and password are required' });
+    }
+    if (confirmPassword && confirmPassword !== password) {
+      return res.status(400).json({ success: false, message: 'Password and confirm password do not match' });
     }
 
     const user = await User.findOne({ where: { email } });
@@ -189,7 +217,12 @@ exports.resetPassword = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
     await user.update({ password: hashedPassword, otp: null });
 
-    return res.status(200).json({ success: true, message: 'Password reset successfully' });
+    return res.status(200).json({
+      success: true,
+      message: 'Password reset successfully',
+      token: createToken(user),
+      user: publicUser(user)
+    });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

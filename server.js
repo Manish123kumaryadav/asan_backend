@@ -4,6 +4,7 @@ require('dns').setDefaultResultOrder('ipv4first');
 
 require('dotenv').config();
 const express = require('express');
+const path = require('path');
 
 const color=require('colors');
 const sequelize = require('./config/database');
@@ -14,6 +15,7 @@ const app = express();
 // parses JSON
 // app.use(express.urlencoded({ extended: true }));
 app.use(express.json()); 
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 
 
