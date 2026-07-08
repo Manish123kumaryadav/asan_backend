@@ -19,17 +19,17 @@ function hasResendConfig() {
 function hasBrevoConfig() {
   return Boolean(
     process.env.BREVO_API_KEY &&
-    process.env.BREVO_FROM_EMAIL
+    (process.env.BREVO_FROM_EMAIL || process.env.EMAIL_FROM)
   );
 }
 async function sendWithBrevo({ to, subject, html }) {
   const response = await axios.post(
     "https://api.brevo.com/v3/smtp/email",
     {
-      sender: {
-        name: process.env.BREVO_FROM_NAME || "Asanway",
-        email: process.env.BREVO_FROM_EMAIL,
-      },
+  sender: {
+    name: process.env.BREVO_FROM_NAME || "Asanway",
+    email: process.env.BREVO_FROM_EMAIL || process.env.EMAIL_FROM,
+},
       to: [
         {
           email: to,
