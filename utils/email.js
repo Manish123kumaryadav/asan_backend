@@ -4,8 +4,13 @@ const { resolve4 } = require('dns').promises;
 function hasMailConfig() {
   return Boolean(
     hasGmailApiConfig() ||
+    hasResendConfig() ||
     (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
   );
+}
+
+function hasResendConfig() {
+  return Boolean(process.env.RESEND_API_KEY);
 }
 
 function hasGmailApiConfig() {
@@ -231,6 +236,27 @@ async function sendWithGmailApi({ from, to, subject, html, text }) {
   return payload;
 }
 
+async function sendWithResend({ from, to, subject, html, text }) {
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ from, to, subject, html, text }),
+  });
+
+  const payload = await response.json();
+  if (!response.ok) {
+    const error = new Error(payload.message || payload.error || 'Resend API failed to send email');
+    error.code = payload.name || response.status;
+    error.response = payload;
+    throw error;
+  }
+
+  return payload;
+}
+
 async function sendWithSmtp({ from, to, subject, html, text }) {
   let lastError;
 
@@ -287,6 +313,18 @@ async function sendOtpEmail(email, otp, purpose, name) {
     });
 
     return { sent: true, provider: 'gmail-api' };
+  }
+
+  if (hasResendConfig()) {
+    await sendWithResend({
+      from,
+      to: email,
+      subject,
+      html,
+      text,
+    });
+
+    return { sent: true, provider: 'resend' };
   }
 
   if (isRailwayRuntime()) {

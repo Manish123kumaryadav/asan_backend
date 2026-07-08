@@ -4,11 +4,15 @@ require('dns').setDefaultResultOrder('ipv4first');
 
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
 
 const color=require('colors');
 const sequelize = require('./config/database');
 const encryptionMiddleware = require('./middleware/encryption');
+const { attachRealtime } = require('./utils/realtime');
 const app = express();
+const server = http.createServer(app);
+attachRealtime(server);
 
 
 // parses JSON
@@ -49,7 +53,7 @@ const PORT = getAppPort();
 //  DB check and server start
 
 async function startServer() {
-  app.listen(PORT, () => {
+  server.listen(PORT, () => {
     console.log(`server running on port ${PORT}`.bgYellow);
   });
 

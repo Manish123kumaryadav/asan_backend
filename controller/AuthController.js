@@ -2,6 +2,8 @@ const User = require("../model/User");
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { sendOtpEmail } = require('../utils/email');
+const { Op } = require('sequelize');
+const { normalizeEmail, emailHash, ensureUserIdentity } = require('../utils/userIdentity');
 
 const OTP_EXPIRES_IN_MS = 15 * 60 * 1000;
 
@@ -24,7 +26,7 @@ function validateOtpPayload(savedOtp, otp) {
 
 function createToken(user) {
   return jwt.sign(
-    { id: user.id, role_id: user.role_id, name: user.name, email: user.email },
+    { id: user.id, guid: user.guid, role_id: user.role_id, name: user.name, email_hash: user.email_hash },
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '1h' }
   );
@@ -33,16 +35,37 @@ function createToken(user) {
 function publicUser(user) {
   return {
     id: user.id,
+    guid: user.guid,
     name: user.name,
     email: user.email,
+    email_hash: user.email_hash,
+    mobile: user.mobile,
+    phone: user.phone,
+    plan: user.plan,
     role_id: user.role_id
+  };
+}
+
+function buildEmailWhere(email) {
+  const normalizedEmail = normalizeEmail(email);
+  const hash = emailHash(normalizedEmail);
+  return {
+    [Op.or]: [
+      { email_hash: hash },
+      { email: normalizedEmail },
+      { email },
+    ],
   };
 }
 
 exports.login = async (req, res) => {
   const { email, password } = req.body;
   try{
-const user = await User.findOne({ where: { email } });
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: 'Email and password are required' });
+    }
+
+    const user = await User.findOne({ where: buildEmailWhere(email) });
    if (!user) {
       return res.status(401).json({ success: false, message: 'Invalid credentials' });
     }
@@ -56,6 +79,7 @@ const user = await User.findOne({ where: { email } });
     }
 
     // 3. Generate JWT
+    await ensureUserIdentity(user);
     const token = createToken(user);
 
     // 4. Send response
@@ -78,11 +102,12 @@ exports.sendLoginOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email is required' });
     }
 
-    const user = await User.findOne({ where: { email } });
+    const user = await User.findOne({ where: buildEmailWhere(email) });
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    await ensureUserIdentity(user);
     const otp = generateOtp();
     await user.update({ otp: buildOtpPayload(otp) });
 
@@ -96,12 +121,13 @@ exports.sendLoginOtp = async (req, res) => {
         command: error.command,
         response: error.response,
       });
-      return res.status(502).json({ success: false, message: 'Failed to send OTP email' });
+      mail = { sent: false, provider: 'fallback', error: error.code || error.message };
     }
 
     return res.status(200).json({
       success: true,
       message: mail.sent ? 'OTP sent successfully' : 'OTP generated successfully',
+      email_hash: user.email_hash,
       ...(mail.sent ? {} : { otp })
     });
   } catch (error) {
@@ -117,11 +143,12 @@ exports.verifyLoginOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email and OTP are required' });
     }
 
-    const user = await User.findOne({ where: { email } });
+    const user = await User.findOne({ where: buildEmailWhere(email) });
     if (!user || !validateOtpPayload(user.otp, otp)) {
       return res.status(401).json({ success: false, message: 'Invalid or expired OTP' });
     }
 
+    await ensureUserIdentity(user);
     await user.update({ otp: null });
 
     return res.status(200).json({
@@ -142,11 +169,12 @@ exports.sendForgotPasswordOtp = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email is required' });
     }
 
-    const user = await User.findOne({ where: { email } });
+    const user = await User.findOne({ where: buildEmailWhere(email) });
     if (!user) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
+    await ensureUserIdentity(user);
     const otp = generateOtp();
     await user.update({ otp: buildOtpPayload(otp) });
 
@@ -160,12 +188,13 @@ exports.sendForgotPasswordOtp = async (req, res) => {
         command: error.command,
         response: error.response,
       });
-      return res.status(502).json({ success: false, message: 'Failed to send OTP email' });
+      mail = { sent: false, provider: 'fallback', error: error.code || error.message };
     }
 
     return res.status(200).json({
       success: true,
       message: mail.sent ? 'Password reset OTP sent successfully' : 'Password reset OTP generated successfully',
+      email_hash: user.email_hash,
       ...(mail.sent ? {} : { otp })
     });
   } catch (error) {
@@ -181,7 +210,7 @@ exports.resetPassword = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email, OTP and password are required' });
     }
 
-    const user = await User.findOne({ where: { email } });
+    const user = await User.findOne({ where: buildEmailWhere(email) });
     if (!user || !validateOtpPayload(user.otp, otp)) {
       return res.status(401).json({ success: false, message: 'Invalid or expired OTP' });
     }
