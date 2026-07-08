@@ -65,25 +65,55 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
-exports.createUser = async (req, res) => {
+exports.CreateUser = async (req, res) => {
   try {
     const payload = buildUserPayload(req.body, true);
+
     if (!payload.email || !payload.password) {
-      return res.status(400).json({ success: false, message: "Email and password are required" });
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required",
+      });
     }
 
-    payload.guid = req.body.guid || generateGuid();
+    // Check existing email
+    const existingUser = await User.findOne({
+      where: {
+        email: payload.email,
+        is_deleted: false,
+      },
+    });
+
+    if (existingUser) {
+      return res.status(409).json({
+        success: false,
+        message: "Email already exists",
+      });
+    }
+
+    payload.guid = generateGuid();
     payload.password = await bcrypt.hash(payload.password, 10);
     payload.created_at = new Date();
     payload.updated_at = new Date();
+    payload.is_deleted = false;
 
     const user = await User.create(payload);
-    res.status(201).json({ success: true, data: user });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+
+    return res.status(201).json({
+      success: true,
+      message: "User created successfully",
+      data: user,
+    });
+  } catch (err) {
+    console.error(err);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
- exports.getUserById = async (req, res) => {
+exports.getUserById = async (req, res) => {
   try {
     const user = await User.findOne({ where: userWhere(req.params.id) });
     if (!user) {
@@ -91,9 +121,9 @@ exports.createUser = async (req, res) => {
     }
     await ensureUserIdentity(user);
     res.status(200).json({ success: true, user });
-    } catch (error) {
+  } catch (error) {
     res.status(500).json({ message: error.message });
-    }
+  }
 
 }
 
@@ -105,8 +135,8 @@ exports.updateUser = async (req, res) => {
     }
     payload.updated_at = new Date();
 
-    const [updated] = await User.update(payload, { where: userWhere(req.params.id) });  
-     if (!updated) {
+    const [updated] = await User.update(payload, { where: userWhere(req.params.id) });
+    if (!updated) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
     res.status(200).json({ success: true, message: 'User updated successfully' });
