@@ -1,8 +1,16 @@
 const nodemailer = require('nodemailer');
 const { resolve4 } = require('dns').promises;
+const { Resend } = require('resend');
 
 function hasMailConfig() {
-  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+  return Boolean(
+    process.env.RESEND_API_KEY ||
+    (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
+  );
+}
+
+function hasResendConfig() {
+  return Boolean(process.env.RESEND_API_KEY);
 }
 
 function escapeHtml(value) {
@@ -77,18 +85,40 @@ async function resolveToIPv4(hostname) {
   return hostname; // fallback to hostname if resolve fails
 }
 
-async function createTransporter() {
+function smtpAttempts() {
   const hostname = process.env.SMTP_HOST || 'smtp.gmail.com';
+  const configuredPort = Number(process.env.SMTP_PORT || 587);
+  const configuredSecure = process.env.SMTP_SECURE === 'true';
+  const attempts = [
+    {
+      hostname,
+      port: configuredPort,
+      secure: configuredSecure,
+    },
+  ];
+
+  if (hostname.includes('gmail.com') && configuredPort !== 465) {
+    attempts.push({
+      hostname,
+      port: 465,
+      secure: true,
+    });
+  }
+
+  return attempts;
+}
+
+async function createTransporter({ hostname, port, secure }) {
   // Pre-resolve to IPv4 so nodemailer never does its own DNS lookup
   // that could return an IPv6 address unreachable on Railway.
   const host = await resolveToIPv4(hostname);
 
   return nodemailer.createTransport({
     host,
-    port: Number(process.env.SMTP_PORT || 587),
+    port,
     // secure=false means use STARTTLS (correct for port 587)
-    secure: process.env.SMTP_SECURE === 'true',
-    requireTLS: true,
+    secure,
+    requireTLS: !secure,
     family: 4, // belt-and-suspenders: also force IPv4 at socket level
     tls: {
       // When host is an IPv4 address, keep TLS/SNI verification tied to the
@@ -105,6 +135,58 @@ async function createTransporter() {
   });
 }
 
+async function sendWithResend({ from, to, subject, html, text }) {
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  const result = await resend.emails.send({
+    from,
+    to,
+    subject,
+    html,
+    text,
+  });
+
+  if (result.error) {
+    const error = new Error(result.error.message || 'Resend failed to send email');
+    error.code = result.error.name;
+    error.response = result.error;
+    throw error;
+  }
+
+  return result.data;
+}
+
+async function sendWithSmtp({ from, to, subject, html, text }) {
+  let lastError;
+
+  for (const attempt of smtpAttempts()) {
+    try {
+      console.log(`SMTP: sending via ${attempt.hostname}:${attempt.port}`);
+      const transporter = await createTransporter(attempt);
+      await transporter.sendMail({
+        from,
+        to,
+        subject,
+        html,
+        text,
+      });
+
+      return { provider: 'smtp', port: attempt.port };
+    } catch (error) {
+      lastError = error;
+      console.error('SMTP attempt failed:', {
+        host: attempt.hostname,
+        port: attempt.port,
+        message: error.message,
+        code: error.code,
+        command: error.command,
+        response: error.response,
+      });
+    }
+  }
+
+  throw lastError;
+}
+
 async function sendOtpEmail(email, otp, purpose, name) {
   if (!hasMailConfig()) {
     return { sent: false };
@@ -115,17 +197,31 @@ async function sendOtpEmail(email, otp, purpose, name) {
   const subject = isReset
     ? `${appName} password reset OTP`
     : `${appName} login OTP`;
+  const from = process.env.MAIL_FROM || process.env.RESEND_FROM || process.env.SMTP_FROM || process.env.SMTP_USER;
+  const html = buildTemplate({ otp, name, purpose });
+  const text = `Your OTP is ${otp}. It expires in 15 minutes.`;
 
-  const transporter = await createTransporter(); // now async
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+  if (hasResendConfig()) {
+    await sendWithResend({
+      from,
+      to: email,
+      subject,
+      html,
+      text,
+    });
+
+    return { sent: true, provider: 'resend' };
+  }
+
+  const smtpResult = await sendWithSmtp({
+    from,
     to: email,
     subject,
-    html: buildTemplate({ otp, name, purpose }),
-    text: `Your OTP is ${otp}. It expires in 15 minutes.`,
+    html,
+    text,
   });
 
-  return { sent: true };
+  return { sent: true, provider: smtpResult.provider, port: smtpResult.port };
 }
 
 module.exports = {
