@@ -90,7 +90,12 @@ exports.sendLoginOtp = async (req, res) => {
     try {
       mail = await sendOtpEmail(email, otp, 'login', user.name);
     } catch (error) {
-      console.error('Failed to send login OTP email:', error.message || error);
+      console.error('Failed to send login OTP email:', {
+        message: error.message,
+        code: error.code,
+        command: error.command,
+        response: error.response,
+      });
       return res.status(502).json({ success: false, message: 'Failed to send OTP email' });
     }
 
@@ -149,7 +154,12 @@ exports.sendForgotPasswordOtp = async (req, res) => {
     try {
       mail = await sendOtpEmail(email, otp, 'forgot-password', user.name);
     } catch (error) {
-      console.error('Failed to send password reset OTP email:', error.message || error);
+      console.error('Failed to send password reset OTP email:', {
+        message: error.message,
+        code: error.code,
+        command: error.command,
+        response: error.response,
+      });
       return res.status(502).json({ success: false, message: 'Failed to send OTP email' });
     }
 

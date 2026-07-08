@@ -90,6 +90,11 @@ async function createTransporter() {
     secure: process.env.SMTP_SECURE === 'true',
     requireTLS: true,
     family: 4, // belt-and-suspenders: also force IPv4 at socket level
+    tls: {
+      // When host is an IPv4 address, keep TLS/SNI verification tied to the
+      // original SMTP hostname instead of the raw IP address.
+      servername: hostname,
+    },
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
