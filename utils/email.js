@@ -1,18 +1,53 @@
+const axios = require("axios");
 const nodemailer = require('nodemailer');
 const { resolve4 } = require('dns').promises;
 
 function hasMailConfig() {
   return Boolean(
+    hasBrevoConfig() ||
     hasGmailApiConfig() ||
     hasResendConfig() ||
-    (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS)
+    (process.env.SMTP_HOST &&
+      process.env.SMTP_USER &&
+      process.env.SMTP_PASS)
   );
 }
 
 function hasResendConfig() {
   return Boolean(process.env.RESEND_API_KEY);
 }
+function hasBrevoConfig() {
+  return Boolean(
+    process.env.BREVO_API_KEY &&
+    process.env.BREVO_FROM_EMAIL
+  );
+}
+async function sendWithBrevo({ to, subject, html }) {
+  const response = await axios.post(
+    "https://api.brevo.com/v3/smtp/email",
+    {
+      sender: {
+        name: process.env.BREVO_FROM_NAME || "Asanway",
+        email: process.env.BREVO_FROM_EMAIL,
+      },
+      to: [
+        {
+          email: to,
+        },
+      ],
+      subject,
+      htmlContent: html,
+    },
+    {
+      headers: {
+        "api-key": process.env.BREVO_API_KEY,
+        "Content-Type": "application/json",
+      },
+    }
+  );
 
+  return response.data;
+}
 function hasGmailApiConfig() {
   return Boolean(
     process.env.GMAIL_CLIENT_ID &&
@@ -21,14 +56,7 @@ function hasGmailApiConfig() {
   );
 }
 
-function isRailwayRuntime() {
-  return Boolean(
-    process.env.RAILWAY_ENVIRONMENT ||
-    process.env.RAILWAY_ENVIRONMENT_NAME ||
-    process.env.RAILWAY_PROJECT_ID ||
-    process.env.RAILWAY_SERVICE_ID
-  );
-}
+
 
 function escapeHtml(value) {
   return String(value || '')
@@ -316,35 +344,77 @@ async function sendOtpEmail(email, otp, purpose, name) {
   });
 
   const text = `Your OTP is ${otp}. It expires in 15 minutes.`;
+try {
 
-  try {
-    // Gmail API (if configured)
-    if (hasGmailApiConfig()) {
-      await sendWithGmailApi({ from, to: email, subject, html, text });
-      return { sent: true, provider: 'gmail-api' };
-    }
-
-    // Resend (if configured)
-    if (hasResendConfig()) {
-      await sendWithResend({ from, to: email, subject, html, text });
-      return { sent: true, provider: 'resend' };
-    }
-
-    // Fallback: raw SMTP
-    const smtpResult = await sendWithSmtp({ from, to: email, subject, html, text });
+  // Brevo API
+  if (hasBrevoConfig()) {
+ await sendWithBrevo({
+    to: email,
+    subject,
+    html,
+});
 
     return {
       sent: true,
-      provider: smtpResult.provider,
-      port: smtpResult.port,
+      provider: "brevo",
     };
-  } catch (error) {
-    console.error("Email send failed:", {
-      message: error.message,
-      code: error.code,
-      command: error.command,
-      response: error.response,
+  }
+
+  // Gmail API
+  if (hasGmailApiConfig()) {
+    await sendWithGmailApi({
+      from,
+      to: email,
+      subject,
+      html,
+      text,
     });
+
+    return {
+      sent: true,
+      provider: "gmail-api",
+    };
+  }
+
+  // Resend
+  if (hasResendConfig()) {
+    await sendWithResend({
+      from,
+      to: email,
+      subject,
+      html,
+      text,
+    });
+
+    return {
+      sent: true,
+      provider: "resend",
+    };
+  }
+
+  // SMTP fallback
+  const smtpResult = await sendWithSmtp({
+    from,
+    to: email,
+    subject,
+    html,
+    text,
+  });
+
+  return {
+    sent: true,
+    provider: smtpResult.provider,
+    port: smtpResult.port,
+  };
+
+} catch (error) {
+  console.error("Email send failed:", {
+    message: error.message,
+    code: error.code,
+    command: error.command,
+    response: error.response,
+  });
+
 
     throw error;
   }
