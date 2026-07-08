@@ -65,7 +65,7 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
-exports.CreateUser = async (req, res) => {
+exports.createUser = async (req, res) => {
   try {
     const payload = buildUserPayload(req.body, true);
 

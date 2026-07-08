@@ -18,7 +18,7 @@ router.get('/users', verifyToken, UserController.getAllUsers);
 
 // user
 router.get('/user', verifyToken, UserController.getAllUsers);
-router.post('/user', UserController.CreateUser);
+router.post('/user', UserController.createUser);
 router.put('/user', verifyToken, UserController.updateCurrentUser);
 router.get('/user/:id', verifyToken, UserController.getUserById);
 router.put('/user/:id', verifyToken, UserController.updateUser);
