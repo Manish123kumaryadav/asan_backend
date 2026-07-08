@@ -28,10 +28,12 @@ function encryptionMiddleware(req, res, next) {
 
     return next();
   } catch (error) {
+    console.error("Encryption middleware error:", error.message);
     res.locals.skipEncryption = true;
     return res.status(400).json({
       success: false,
       message: "Invalid encrypted request body",
+      error: error.message,
     });
   }
 }

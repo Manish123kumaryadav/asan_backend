@@ -6,6 +6,11 @@ const UserController = require('../controller/UserController');
 const SubscriptionController = require('../controller/SubscriptionController');
 const ChatController = require('../controller/ChatController');
 const NotificationController = require('../controller/NotificationController');
+const ListingController = require('../controller/ListingController');
+const OrderController = require('../controller/OrderController');
+const PaymentController = require('../controller/PaymentController');
+const CallController = require('../controller/CallController');
+const MediaController = require('../controller/MediaController');
 // login
 router.post('/login', AuthController.login);
 router.post('/send-login-otp', AuthController.sendLoginOtp);
@@ -36,5 +41,28 @@ router.post('/chat/conversations/:conversationId/messages', verifyToken, ChatCon
 router.get('/notifications', verifyToken, NotificationController.list);
 router.post('/notifications', verifyToken, NotificationController.create);
 router.put('/notifications/:notificationId/read', verifyToken, NotificationController.markRead);
+
+// listings
+router.get('/listings', ListingController.list);
+router.post('/listings', verifyToken, ListingController.create);
+router.post('/listings/:listingId/contact', verifyToken, ListingController.contact);
+
+// orders
+router.get('/orders', verifyToken, OrderController.list);
+router.post('/orders', verifyToken, OrderController.create);
+router.get('/orders/:orderId/track', verifyToken, OrderController.track);
+
+// payments
+router.post('/payments/upi-intent', verifyToken, PaymentController.createUpiIntent);
+router.post('/payments/verify', verifyToken, PaymentController.verify);
+
+// calls
+router.post('/calls/start', verifyToken, CallController.start);
+router.post('/calls/:callId/end', verifyToken, CallController.end);
+router.put('/calls/preferences', verifyToken, CallController.updatePreferences);
+
+// media
+router.post('/media/upload/product', verifyToken, MediaController.upload('product'));
+router.post('/media/upload/avatar', verifyToken, MediaController.upload('avatar'));
 
 module.exports=router;

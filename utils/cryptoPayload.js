@@ -68,14 +68,9 @@ function encryptPayload(payload) {
 function decryptPayload(envelope) {
   const iv = envelope.iv;
   const data = envelope.data || envelope.encryptedData || envelope.payload;
-  const hmac = envelope.hmac || envelope.hash || envelope.signature;
 
-  if (!iv || !data || !hmac) {
-    throw new Error("Encrypted payload must include iv, data and hmac");
-  }
-
-  if (!isValidHmac(iv, data, hmac)) {
-    throw new Error("Invalid encrypted payload signature");
+  if (!iv || !data) {
+    throw new Error("Encrypted payload must include iv and data");
   }
 
   const decipher = crypto.createDecipheriv(ALGORITHM, getEncryptionKey(), decode(iv));
