@@ -21,14 +21,7 @@ function hasGmailApiConfig() {
   );
 }
 
-function isRailwayRuntime() {
-  return Boolean(
-    process.env.RAILWAY_ENVIRONMENT ||
-    process.env.RAILWAY_ENVIRONMENT_ID ||
-    process.env.RAILWAY_PROJECT_ID ||
-    process.env.RAILWAY_SERVICE_ID
-  );
-}
+
 
 function escapeHtml(value) {
   return String(value || '')
@@ -130,28 +123,28 @@ async function createTransporter({ hostname, port, secure }) {
   // that could return an IPv6 address unreachable on Railway.
   const host = await resolveToIPv4(hostname);
 
-  return nodemailer.createTransport({
-    host,
-    port,
-    // secure=false means use STARTTLS (correct for port 587)
-    secure,
-    requireTLS: !secure,
-    family: 4, // belt-and-suspenders: also force IPv4 at socket level
-    tls: {
-      // When host is an IPv4 address, keep TLS/SNI verification tied to the
-      // original SMTP hostname instead of the raw IP address.
-      servername: hostname,
-    },
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-    connectionTimeout: Number(process.env.SMTP_TIMEOUT || 30000),
-    greetingTimeout: 20000,
-    socketTimeout: Number(process.env.SMTP_TIMEOUT || 30000),
-  });
-}
+return nodemailer.createTransport({
+  host,
+  port,
+  secure,
+  requireTLS: !secure,
 
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  },
+
+  tls: {
+    servername: hostname,
+    rejectUnauthorized: false,
+  },
+
+  family: 4,
+
+  connectionTimeout: 30000,
+  greetingTimeout: 30000,
+  socketTimeout: 30000,
+});
 function encodeBase64Url(value) {
   return Buffer.from(value)
     .toString('base64')
@@ -291,26 +284,42 @@ async function sendWithSmtp({ from, to, subject, html, text }) {
 
 async function sendOtpEmail(email, otp, purpose, name) {
   if (!hasMailConfig()) {
-    return { sent: false };
+    const error = new Error("Mail configuration is missing.");
+    error.code = "MAIL_CONFIG_MISSING";
+    throw error;
   }
 
-  const appName = process.env.APP_NAME || 'Asanway';
-  const isReset = purpose === 'forgot-password';
+  const appName = process.env.APP_NAME || "Asanway";
+  const isReset = purpose === "forgot-password";
+
   const subject = isReset
-    ? `${appName} password reset OTP`
-    : `${appName} login OTP`;
-  const from = process.env.MAIL_FROM || process.env.RESEND_FROM || process.env.SMTP_FROM || process.env.SMTP_USER;
-  const html = buildTemplate({ otp, name, purpose });
+    ? `${appName} Password Reset OTP`
+    : `${appName} Login OTP`;
+
+  const from =
+    process.env.MAIL_FROM ||
+    process.env.RESEND_FROM ||
+    process.env.SMTP_FROM ||
+    process.env.SMTP_USER;
+
+  const html = buildTemplate({
+    otp,
+    name,
+    purpose,
+  });
+
   const text = `Your OTP is ${otp}. It expires in 15 minutes.`;
 
-  if (hasGmailApiConfig()) {
-    await sendWithGmailApi({
-      from,
-      to: email,
-      subject,
-      html,
-      text,
-    });
+  try {
+    // Gmail API (if configured)
+    if (hasGmailApiConfig()) {
+      await sendWithGmailApi({
+        from,
+        to: email,
+        subject,
+        html,
+        text,
+      });
 
     return { sent: true, provider: 'gmail-api' };
   }
@@ -341,7 +350,21 @@ async function sendOtpEmail(email, otp, purpose, name) {
     text,
   });
 
-  return { sent: true, provider: smtpResult.provider, port: smtpResult.port };
+    return {
+      sent: true,
+      provider: smtpResult.provider,
+      port: smtpResult.port,
+    };
+  } catch (error) {
+    console.error("Email send failed:", {
+      message: error.message,
+      code: error.code,
+      command: error.command,
+      response: error.response,
+    });
+
+    throw error;
+  }
 }
 
 module.exports = {
