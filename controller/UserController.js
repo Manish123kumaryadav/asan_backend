@@ -78,7 +78,7 @@ exports.createUser = async (req, res) => {
     payload.updated_at = new Date();
 
     const user = await User.create(payload);
-    res.status(201).json({ success: true, user });
+    res.status(201).json({ success: true, data: user });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
