@@ -21,7 +21,14 @@ function hasGmailApiConfig() {
   );
 }
 
-
+function isRailwayRuntime() {
+  return Boolean(
+    process.env.RAILWAY_ENVIRONMENT ||
+    process.env.RAILWAY_ENVIRONMENT_NAME ||
+    process.env.RAILWAY_PROJECT_ID ||
+    process.env.RAILWAY_SERVICE_ID
+  );
+}
 
 function escapeHtml(value) {
   return String(value || '')
@@ -143,7 +150,7 @@ async function createTransporter({ hostname, port, secure }) {
     greetingTimeout: 30000,
     socketTimeout: 30000,
   });
-} // <-- Ye missing tha
+}
 
 function encodeBase64Url(value) {
   return Buffer.from(value)
@@ -321,34 +328,34 @@ async function sendOtpEmail(email, otp, purpose, name) {
         text,
       });
 
-    return { sent: true, provider: 'gmail-api' };
-  }
+      return { sent: true, provider: 'gmail-api' };
+    }
 
-  if (hasResendConfig()) {
-    await sendWithResend({
+    if (hasResendConfig()) {
+      await sendWithResend({
+        from,
+        to: email,
+        subject,
+        html,
+        text,
+      });
+
+      return { sent: true, provider: 'resend' };
+    }
+
+    if (isRailwayRuntime()) {
+      const error = new Error('Railway runtime cannot reach Gmail SMTP. Configure Gmail API OAuth env vars to send OTP emails over HTTPS.');
+      error.code = 'EMAIL_PROVIDER_REQUIRED';
+      throw error;
+    }
+
+    const smtpResult = await sendWithSmtp({
       from,
       to: email,
       subject,
       html,
       text,
     });
-
-    return { sent: true, provider: 'resend' };
-  }
-
-  if (isRailwayRuntime()) {
-    const error = new Error('Railway runtime cannot reach Gmail SMTP. Configure Gmail API OAuth env vars to send OTP emails over HTTPS.');
-    error.code = 'EMAIL_PROVIDER_REQUIRED';
-    throw error;
-  }
-
-  const smtpResult = await sendWithSmtp({
-    from,
-    to: email,
-    subject,
-    html,
-    text,
-  });
 
     return {
       sent: true,
@@ -369,4 +376,4 @@ async function sendOtpEmail(email, otp, purpose, name) {
 
 module.exports = {
   sendOtpEmail,
-}
+};
