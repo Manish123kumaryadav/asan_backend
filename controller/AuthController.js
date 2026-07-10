@@ -104,7 +104,7 @@ exports.login = async (req, res) => {
     }
 
     // 3. Generate JWT
-    await ensureUserIdentity(user);
+    await user;
     const token = createToken(user);
 
     // 4. Send response
