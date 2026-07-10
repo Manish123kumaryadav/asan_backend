@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS tbl_listing (
   seller_phone VARCHAR(30),
   seller_rating NUMERIC(3,2) NOT NULL DEFAULT 4.50,
   payment_upi_masked VARCHAR(120),
-  payment_upi_encrypted TEXT,
+  payment_upi TEXT,
   image_path TEXT NOT NULL,
   status VARCHAR(30) NOT NULL DEFAULT 'active',
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -69,7 +69,19 @@ CREATE TABLE IF NOT EXISTS tbl_listing (
 );
 
 ALTER TABLE tbl_listing ADD COLUMN IF NOT EXISTS seller_phone VARCHAR(30);
-ALTER TABLE tbl_listing ADD COLUMN IF NOT EXISTS payment_upi_encrypted TEXT;
+ALTER TABLE tbl_listing ADD COLUMN IF NOT EXISTS payment_upi TEXT;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name = 'tbl_listing'
+      AND column_name = 'payment_upi_encrypted'
+  ) THEN
+    EXECUTE 'UPDATE tbl_listing SET payment_upi = payment_upi_encrypted WHERE payment_upi IS NULL';
+  END IF;
+END $$;
+ALTER TABLE tbl_listing DROP COLUMN IF EXISTS payment_upi_encrypted;
 
 CREATE TABLE IF NOT EXISTS tbl_order (
   id BIGSERIAL PRIMARY KEY,

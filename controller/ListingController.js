@@ -87,7 +87,7 @@ exports.create = async (req, res) => {
       seller_phone: user.phone || user.mobile,
       seller_rating: 4.5,
       payment_upi_masked: body.paymentUpiMasked || maskUpi(body.upi),
-      payment_upi_encrypted: body.upi || null,
+      payment_upi: body.upi || null,
       image_path: body.image,
       status: "active",
       created_at: new Date(),

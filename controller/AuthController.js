@@ -111,7 +111,7 @@ exports.login = async (req, res) => {
     return res.status(200).json({
       success: true,
       token,
-      user: publicUser(user)
+      user: user
     });
   } catch(error) {
     res.status(500).json({ message: error.message });

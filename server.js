@@ -8,7 +8,6 @@ const http = require('http');
 
 const color=require('colors');
 const sequelize = require('./config/database');
-const encryptionMiddleware = require('./middleware/encryption');
 const { attachRealtime } = require('./utils/realtime');
 const app = express();
 const server = http.createServer(app);
@@ -33,7 +32,7 @@ app.get('/health', (req, res) => {
 
 //  Routes
 const todoroute = require('./routes/api');
-app.use("/api", encryptionMiddleware, todoroute); // routes mounted AFTER middleware
+app.use("/api", todoroute);
 
 
 
