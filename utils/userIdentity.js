@@ -5,32 +5,24 @@ function normalizeEmail(email) {
 }
 
 function emailHash(email) {
-  return crypto
-    .createHmac("sha256", process.env.EMAIL_HASH_SECRET)
-    .update(normalizeEmail(email))
-    .digest("hex");
+  const normalized = normalizeEmail(email);
+  return normalized ? crypto.createHash("sha256").update(normalized).digest("hex") : null;
 }
 
 function generateGuid() {
-  return crypto.randomUUID();
+  return crypto.randomBytes(16).toString("hex");
 }
 
 async function ensureUserIdentity(user) {
-  let changed = false;
+  if (!user) return null;
 
-  if (!user.guid) {
-    user.guid = generateGuid();
-    changed = true;
-  }
+  const updates = {};
+  if (!user.guid) updates.guid = generateGuid();
+  if (user.email && !user.email_hash) updates.email_hash = emailHash(user.email);
 
-  if (user.email_hash && !user.email) {
-    user.email = normalizeEmail(user.email_hash);
-    user.email_hash = emailHash(user.email_hash);
-    changed = true;
-  }
-
-  if (changed) {
-    await user.save();
+  if (Object.keys(updates).length > 0) {
+    await user.update(updates);
+    Object.assign(user, updates);
   }
 
   return user;

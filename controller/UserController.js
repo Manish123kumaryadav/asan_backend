@@ -27,9 +27,9 @@ function buildUserPayload(body, includePassword = false) {
     if (body[field] !== undefined) payload[field] = body[field];
   }
 
-  if (payload.email_hash) {
-    payload.email = normalizeEmail(payload.email_hash);
-    payload.email_hash = emailHash(payload.email_hash);
+  if (payload.email) {
+    payload.email = normalizeEmail(payload.email);
+    payload.email_hash = emailHash(payload.email);
   }
 
   if (!payload.phone && payload.mobile) payload.phone = payload.mobile;
@@ -69,17 +69,17 @@ exports.createUser = async (req, res) => {
   try {
     const payload = buildUserPayload(req.body, true);
 
-    if (!payload.email_hash || !payload.password) {
+    if (!payload.email || !payload.password) {
       return res.status(400).json({
         success: false,
-        message: "Email hash and password are required",
+        message: "Email and password are required",
       });
     }
 
     // Check existing email
     const existingUser = await User.findOne({
       where: {
-        email_hash: payload.email_hash,
+        email: payload.email,
         is_deleted: false,
       },
     });
