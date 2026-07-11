@@ -1,16 +1,11 @@
 const User = require("../model/User");
-const bcrypt = require("bcryptjs");
-const {
-  emailHash,
-  generateGuid,
-  normalizeEmail,
-  ensureUserIdentity,
-} = require("../utils/userIdentity");
+const bcrypt = require('bcryptjs');
+const { emailHash, generateGuid, normalizeEmail, ensureUserIdentity } = require("../utils/userIdentity");
 const { Op } = require("sequelize");
 
 const USER_FIELDS = [
   "name",
-  "email_hash",
+  "email",
   "mobile",
   "phone",
   "image",
@@ -29,105 +24,62 @@ function buildUserPayload(body, includePassword = false) {
   const payload = {};
 
   for (const field of USER_FIELDS) {
-    if (body[field] !== undefined) {
-      payload[field] = body[field];
-    }
+    if (body[field] !== undefined) payload[field] = body[field];
   }
 
-  if (payload.email_hash && !payload.email) {
-    const normalizedEmail = normalizeEmail(payload.email_hash);
-
-    payload.email_hash = normalizedEmail;
-    payload.email_hash = emailHash(normalizedEmail);
+  if (payload.email_hash) {
+    payload.email = normalizeEmail(payload.email_hash);
+    payload.email_hash = emailHash(payload.email_hash);
   }
 
-  if (!payload.phone && payload.mobile) {
-    payload.phone = payload.mobile;
-  }
-
-  if (!payload.mobile && payload.phone) {
-    payload.mobile = payload.phone;
-  }
-
-  if (includePassword && body.password) {
-    payload.password = body.password;
-  }
+  if (!payload.phone && payload.mobile) payload.phone = payload.mobile;
+  if (!payload.mobile && payload.phone) payload.mobile = payload.phone;
+  if (includePassword && body.password) payload.password = body.password;
 
   return payload;
 }
 
 function userWhere(identifier) {
   const value = String(identifier || "").trim();
-  const normalizedEmail = normalizeEmail(value);
-  const hashedEmail = emailHash(normalizedEmail);
-
+  const normalized = normalizeEmail(value);
+  const hash = emailHash(normalized);
   const conditions = [
     { guid: value },
-    { email: normalizedEmail },
+    { email: normalized },
     { email: value },
-    { email_hash: hashedEmail },
+    { email_hash: hash },
     { email_hash: value },
   ];
-
   if (/^\d+$/.test(value)) {
     conditions.push({ id: Number(value) });
   }
-
-  return {
-    [Op.or]: conditions,
-  };
-}
-
-function sanitizeUser(user) {
-  if (!user) return null;
-
-  const data = user.toJSON ? user.toJSON() : { ...user };
-
-  delete data.password;
-  delete data.otp;
-
-  return data;
+  return { [Op.or]: conditions };
 }
 
 exports.getAllUsers = async (req, res) => {
   try {
-    const users = await User.findAll({
-      attributes: {
-        exclude: ["password", "otp"],
-      },
-    });
-
-    return res.status(200).json({
-      success: true,
-      users,
-    });
+    const users = await User.findAll();
+    res.status(200).json({ success: true, users });
   } catch (error) {
-    console.error("Get all users error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Internal server error",
-    });
+    res.status(500).json({ message: error.message });
   }
 };
 
 exports.createUser = async (req, res) => {
   try {
-    const { email_hash, password } = req.body;
+    const payload = buildUserPayload(req.body, true);
 
-    if (!email_hash || !password) {
+    if (!payload.email_hash || !payload.password) {
       return res.status(400).json({
         success: false,
         message: "Email hash and password are required",
       });
     }
 
-    const normalizedEmail = normalizeEmail(email_hash);
-    const hashedEmail = emailHash(normalizedEmail);
-
+    // Check existing email
     const existingUser = await User.findOne({
       where: {
-        email_hash: hashedEmail,
+        email_hash: payload.email_hash,
         is_deleted: false,
       },
     });
@@ -139,190 +91,79 @@ exports.createUser = async (req, res) => {
       });
     }
 
-    const payload = buildUserPayload(req.body);
-
     payload.guid = generateGuid();
-    payload.password = await bcrypt.hash(password, 10);
-    payload.is_deleted = false;
+    payload.password = await bcrypt.hash(payload.password, 10);
     payload.created_at = new Date();
     payload.updated_at = new Date();
+    payload.is_deleted = false;
 
     const user = await User.create(payload);
 
     return res.status(201).json({
       success: true,
       message: "User created successfully",
-      data: sanitizeUser(user),
+      data: user,
     });
-  } catch (error) {
-    console.error("Create user error:", error);
-
-    if (error.name === "SequelizeUniqueConstraintError") {
-      return res.status(409).json({
-        success: false,
-        message: "Email already exists",
-      });
-    }
+  } catch (err) {
+    console.error(err);
 
     return res.status(500).json({
       success: false,
-      message: error.message || "Internal server error",
+      message: err.message,
     });
   }
 };
-
 exports.getUserById = async (req, res) => {
   try {
-    const user = await User.findOne({
-      where: userWhere(req.params.id),
-    });
-
+    const user = await User.findOne({ where: userWhere(req.params.id) });
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
-
     await ensureUserIdentity(user);
-
-    return res.status(200).json({
-      success: true,
-      user: sanitizeUser(user),
-    });
+    res.status(200).json({ success: true, user });
   } catch (error) {
-    console.error("Get user error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Internal server error",
-    });
+    res.status(500).json({ message: error.message });
   }
-};
+
+}
 
 exports.updateUser = async (req, res) => {
   try {
-    const user = await User.findOne({
-      where: userWhere(req.params.id),
-    });
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    const payload = buildUserPayload(req.body);
-
-    if (req.body.email) {
-      const normalizedEmail = normalizeEmail(req.body.email);
-      const hashedEmail = emailHash(normalizedEmail);
-
-      const existingUser = await User.findOne({
-        where: {
-          email_hash: hashedEmail,
-          id: {
-            [Op.ne]: user.id,
-          },
-          is_deleted: false,
-        },
-      });
-
-      if (existingUser) {
-        return res.status(409).json({
-          success: false,
-          message: "Email already exists",
-        });
-      }
-    }
-
+    const payload = buildUserPayload(req.body, false);
     if (req.body.password) {
       payload.password = await bcrypt.hash(req.body.password, 10);
     }
-
     payload.updated_at = new Date();
 
-    await user.update(payload);
-
-    return res.status(200).json({
-      success: true,
-      message: "User updated successfully",
-      user: sanitizeUser(user),
-    });
+    const [updated] = await User.update(payload, { where: userWhere(req.params.id) });
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    res.status(200).json({ success: true, message: 'User updated successfully' });
   } catch (error) {
-    console.error("Update user error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Internal server error",
-    });
+    res.status(500).json({ message: error.message });
   }
 };
 
 exports.updateCurrentUser = async (req, res) => {
   try {
     const userId = req.user?.id;
-
     if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized",
-      });
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
     }
-
-    const user = await User.findByPk(userId);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
-
-    const payload = buildUserPayload(req.body);
-
-    if (req.body.email) {
-      const normalizedEmail = normalizeEmail(req.body.email);
-      const hashedEmail = emailHash(normalizedEmail);
-
-      const existingUser = await User.findOne({
-        where: {
-          email_hash: hashedEmail,
-          id: {
-            [Op.ne]: userId,
-          },
-          is_deleted: false,
-        },
-      });
-
-      if (existingUser) {
-        return res.status(409).json({
-          success: false,
-          message: "Email already exists",
-        });
-      }
-    }
-
+    const payload = buildUserPayload(req.body, false);
     if (req.body.password) {
       payload.password = await bcrypt.hash(req.body.password, 10);
     }
-
     payload.updated_at = new Date();
 
-    await user.update(payload);
-
-    return res.status(200).json({
-      success: true,
-      message: "User updated successfully",
-      user: sanitizeUser(user),
-    });
+    const [updated] = await User.update(payload, { where: { id: userId } });
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    const user = await User.findByPk(userId);
+    res.status(200).json({ success: true, message: 'User updated successfully', user });
   } catch (error) {
-    console.error("Update current user error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: error.message || "Internal server error",
-    });
+    res.status(500).json({ message: error.message });
   }
 };

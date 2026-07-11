@@ -25,7 +25,7 @@ async function ensureUserIdentity(user) {
 
   if (user.email_hash && !user.email) {
     user.email = normalizeEmail(user.email_hash);
-    user.email_hash = emailHash(user.email);
+    user.email_hash = emailHash(user.email_hash);
     changed = true;
   }
 
