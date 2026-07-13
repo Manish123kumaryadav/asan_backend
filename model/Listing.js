@@ -21,7 +21,7 @@ const Listing = sequelize.define("Listing", {
   seller_phone: DataTypes.STRING,
   seller_rating: DataTypes.DECIMAL(3, 2),
   payment_upi_masked: DataTypes.STRING,
-  payment_upi: DataTypes.TEXT,
+  payment_upi_encrypted: DataTypes.TEXT,
   image_path: DataTypes.STRING,
   status: DataTypes.STRING,
   created_at: DataTypes.DATE,

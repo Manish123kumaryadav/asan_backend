@@ -1,7 +1,6 @@
 const SubscriptionPlan = require("../model/SubscriptionPlan");
 const User = require("../model/User");
 const { ensureUserIdentity, normalizeEmail, emailHash } = require("../utils/userIdentity");
-const { Op } = require("sequelize");
 
 function toPlan(row) {
   return {
@@ -42,16 +41,8 @@ exports.dashboard = async (req, res) => {
 
     if (emailInput) {
       const normalized = normalizeEmail(emailInput);
-      const hash = emailHash(normalized);
-      user = await User.findOne({
-        where: {
-          [Op.or]: [
-            { email: normalized },
-            { email: emailInput },
-            { email_hash: hash }
-          ]
-        }
-      });
+      const hash = /^[a-f0-9]{64}$/i.test(String(emailInput)) ? String(emailInput).toLowerCase() : emailHash(normalized);
+      user = await User.findOne({ where: { email_hash: hash, is_deleted: 0 } });
     }
 
     if (!user && req.user?.id) {
@@ -75,10 +66,8 @@ exports.dashboard = async (req, res) => {
         id: user.id,
         guid: user.guid,
         name: user.name,
-        email: user.email,
         email_hash: user.email_hash,
-        mobile: user.mobile || user.phone,
-        phone: user.phone || user.mobile,
+        mobile: user.mobile,
         plan: user.plan || "free",
         plan_detail: plan ? toPlan(plan) : null,
       },

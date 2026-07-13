@@ -18,7 +18,6 @@ async function ensureUserIdentity(user) {
 
   const updates = {};
   if (!user.guid) updates.guid = generateGuid();
-  if (user.email && !user.email_hash) updates.email_hash = emailHash(user.email);
 
   if (Object.keys(updates).length > 0) {
     await user.update(updates);

@@ -69,5 +69,6 @@ router.put('/calls/preferences', verifyToken, CallController.updatePreferences);
 // media
 router.post('/media/upload/product', verifyToken, MediaController.upload('product'));
 router.post('/media/upload/avatar', verifyToken, MediaController.upload('avatar'));
+router.get('/media/object/:bucket/:userGuid/:fileName', MediaController.object);
 
 module.exports=router;

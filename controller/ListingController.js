@@ -2,6 +2,8 @@ const Listing = require("../model/Listing");
 const User = require("../model/User");
 const ContactView = require("../model/ContactView");
 const { Op } = require("sequelize");
+const NewAdDetail = require("../model/NewAdDetail");
+const OldAdDetail = require("../model/OldAdDetail");
 
 const CONTACT_LIMITS = {
   free: 0,
@@ -19,6 +21,7 @@ function maskUpi(upi) {
 }
 
 function toListing(row) {
+  const imagePaths = parseImagePaths(row.image_path);
   return {
     id: String(row.id),
     title: row.title,
@@ -37,11 +40,24 @@ function toListing(row) {
     sellerName: row.seller_name || "Aashanway seller",
     sellerRating: Number(row.seller_rating || 4.5),
     paymentUpiMasked: row.payment_upi_masked || "hidden",
-    image: row.image_path || "",
+    image: imagePaths[0] || "",
+    imagePaths,
     status: row.status === "active" ? "approved" : row.status,
     sellerId: String(row.seller_id),
     postedAt: row.created_at ? new Date(row.created_at).toLocaleString("en-IN") : "Just now",
   };
+}
+
+function parseImagePaths(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean).slice(0, 5);
+  try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.filter(Boolean).slice(0, 5) : [String(value)]; }
+  catch { return [String(value)]; }
+}
+
+function imagePathValue(body) {
+  const paths = parseImagePaths(body.imagePaths || body.images || body.image);
+  return paths.length ? JSON.stringify(paths) : undefined;
 }
 
 function listingPayload(body) {
@@ -60,10 +76,20 @@ function listingPayload(body) {
     return_policy_text: body.returnPolicyText,
     description: body.description,
     payment_upi_masked: body.paymentUpiMasked || maskUpi(body.upi),
-    payment_upi: body.upi || null,
-    image_path: body.image,
+    payment_upi_encrypted: body.upi || body.paymentUpiEncrypted || null,
+    image_path: imagePathValue(body),
     updated_at: new Date(),
   };
+}
+
+function isNewProduct(condition) { return ["new", "brand new"].includes(String(condition || "").toLowerCase()); }
+async function syncAdDetail(row, user) {
+  const Target = isNewProduct(row.condition) ? NewAdDetail : OldAdDetail;
+  const Other = Target === NewAdDetail ? OldAdDetail : NewAdDetail;
+  await Other.destroy({ where: { listing_id: row.id } });
+  const data = { ad_uid: `${user.guid}-${row.id}`, uid: user.guid, listing_id: row.id, title: row.title, category: row.category, type: ["rent", "rental"].includes(String(row.mode).toLowerCase()) ? "rent" : "sell", mode: row.mode, condition: row.condition, price: row.price, location: row.location, image_paths: row.image_path, status: row.status, is_deleted: 0, is_active: ["active", "approved"].includes(row.status) ? 1 : 0, is_sold_out: 0, is_coming_soon: 0, updated_at: new Date() };
+  const existing = await Target.findOne({ where: { listing_id: row.id } });
+  if (existing) await existing.update(data); else await Target.create({ ...data, created_at: row.created_at || new Date() });
 }
 
 function canManage(req, listing) {
@@ -92,19 +118,21 @@ exports.create = async (req, res) => {
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
     const body = req.body;
-    if (!body.title || !body.category || !body.price || !body.image) {
-      return res.status(400).json({ success: false, message: "Title, category, price and image are required" });
+    if (!body.title || !body.category || !body.price || !imagePathValue(body)) {
+      return res.status(400).json({ success: false, message: "Title, category, price and at least one image are required" });
     }
 
     const row = await Listing.create({
       ...listingPayload(body),
       seller_id: userId,
       seller_name: user.name,
-      seller_phone: user.phone || user.mobile,
+      seller_phone: user.mobile,
       seller_rating: 4.5,
       status: "pending",
       created_at: new Date(),
     });
+
+    await syncAdDetail(row, user);
 
     await user.update({ active_ads: Number(user.active_ads || 0) + 1, updated_at: new Date() });
     return res.status(201).json({ success: true, data: toListing(row) });
@@ -142,6 +170,8 @@ exports.update = async (req, res) => {
     Object.keys(payload).forEach((key) => payload[key] === undefined && delete payload[key]);
     if (Number(req.user.role_id) !== 1) payload.status = "pending";
     await row.update(payload);
+    const owner = await User.findByPk(row.seller_id);
+    if (owner) await syncAdDetail(row, owner);
     return res.json({ success: true, message: "Product updated successfully", data: toListing(row) });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -170,6 +200,8 @@ exports.review = async (req, res) => {
     const row = await Listing.findByPk(req.params.listingId);
     if (!row) return res.status(404).json({ success: false, message: "Listing not found" });
     await row.update({ status, updated_at: new Date() });
+    const owner = await User.findByPk(row.seller_id);
+    if (owner) await syncAdDetail(row, owner);
     return res.json({ success: true, message: `Product ${req.body.status}`, data: toListing(row) });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
@@ -229,7 +261,7 @@ exports.contact = async (req, res) => {
       });
     }
 
-    const phone = listing.seller_phone || seller?.phone || seller?.mobile || "";
+    const phone = listing.seller_phone || seller?.mobile || "";
     return res.json({
       success: true,
       data: {

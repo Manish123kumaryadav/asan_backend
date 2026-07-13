@@ -1,0 +1,6 @@
+const { DataTypes } = require("sequelize");
+const sequelize = require("../config/database");
+
+module.exports = sequelize.define("OldAdDetail", {
+  id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true }, ad_uid: { type: DataTypes.STRING(80), allowNull: false, unique: true }, uid: { type: DataTypes.STRING(32), allowNull: false }, listing_id: { type: DataTypes.BIGINT, allowNull: false, unique: true }, title: { type: DataTypes.STRING(220), allowNull: false }, category: DataTypes.STRING(120), type: { type: DataTypes.STRING(20), defaultValue: "sell" }, mode: { type: DataTypes.STRING(30), allowNull: false }, condition: { type: DataTypes.STRING(20), defaultValue: "old" }, price: { type: DataTypes.DECIMAL(12,2), defaultValue: 0 }, location: DataTypes.TEXT, image_paths: { type: DataTypes.TEXT, allowNull: false }, status: { type: DataTypes.STRING(30), defaultValue: "active" }, is_deleted: { type: DataTypes.SMALLINT, defaultValue: 0 }, is_active: { type: DataTypes.SMALLINT, defaultValue: 1 }, is_sold_out: { type: DataTypes.SMALLINT, defaultValue: 0 }, is_coming_soon: { type: DataTypes.SMALLINT, defaultValue: 0 }, created_at: DataTypes.DATE, updated_at: DataTypes.DATE,
+}, { tableName: "tbl_old_ad_detail", timestamps: false });
