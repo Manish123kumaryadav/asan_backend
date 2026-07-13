@@ -15,6 +15,10 @@ const CONTACT_LIMITS = {
   business: 120,
 };
 
+function requiresProductApproval() {
+  return String(process.env.PRODUCT_APPROVAL_REQUIRED || "false").toLowerCase() === "true";
+}
+
 function maskUpi(upi) {
   if (!upi) return "hidden";
   const value = String(upi);
@@ -130,7 +134,7 @@ exports.create = async (req, res) => {
       seller_name: user.name,
       seller_phone: user.mobile,
       seller_rating: 4.5,
-      status: "pending",
+      status: requiresProductApproval() ? "pending" : "active",
       created_at: new Date(),
     });
 
@@ -170,7 +174,7 @@ exports.update = async (req, res) => {
     if (!canManage(req, row)) return res.status(403).json({ success: false, message: "You cannot update this product" });
     const payload = listingPayload(req.body);
     Object.keys(payload).forEach((key) => payload[key] === undefined && delete payload[key]);
-    if (Number(req.user.role_id) !== 1) payload.status = "pending";
+    if (Number(req.user.role_id) !== 1) payload.status = requiresProductApproval() ? "pending" : "active";
     await row.update(payload);
     const owner = await User.findByPk(row.seller_id);
     if (owner) await syncAdDetail(row, owner);
