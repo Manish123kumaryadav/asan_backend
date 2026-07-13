@@ -86,21 +86,21 @@ async function findOrCreateUserByEmail(emailInput) {
 }
 
 exports.login = async (req, res) => {
-  const { email, password } = req.body;
+  const { email_hash, password } = req.body;
   try {
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: 'Email and password are required' });
+    if (!email_hash || !password) {
+      return res.status(400).json({ success: false, message: 'Email hash and password are required' });
     }
 
-    const user = await User.findOne({ where: buildEmailWhere(email) });
+    const user = await User.findOne({ where: buildEmailWhere(email_hash) });
     if (!user) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, message: 'Invalid email hash or password' });
     }
 
     // 2. Validate password
     const match = await bcrypt.compare(password, user.password);
     if (!match) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials' });
+      return res.status(401).json({ success: false, message: 'Invalid email hash or password  ' });
     }
 
     // 3. Generate JWT
