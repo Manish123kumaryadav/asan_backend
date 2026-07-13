@@ -69,17 +69,11 @@ exports.createUser = async (req, res) => {
   try {
     const payload = buildUserPayload(req.body, true);
 
-    if (!payload.email || !payload.password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required",
-      });
-    }
-
+    
     // Check existing email
     const existingUser = await User.findOne({
       where: {
-        email: payload.email,
+        email_hash: payload.email_hash,
         is_deleted: false,
       },
     });
@@ -102,7 +96,16 @@ exports.createUser = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: "User created successfully",
-      data: user,
+      data: {
+        id: user.id,
+        guid: user.guid,
+        name: user.name,
+        email: user.email,
+        mobile: user.mobile,
+        phone: user.phone,
+        role_id: user.role_id,
+        plan: user.plan,
+      },
     });
   } catch (err) {
     console.error(err);

@@ -16,6 +16,15 @@ attachRealtime(server);
 
 // parses JSON
 // app.use(express.urlencoded({ extended: true }));
+app.use((req, res, next) => {
+  const allowed = (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:5173').split(',');
+  const origin = req.headers.origin;
+  if (origin && allowed.includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 app.use(express.json()); 
 
 

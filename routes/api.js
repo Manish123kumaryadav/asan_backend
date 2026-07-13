@@ -44,7 +44,12 @@ router.put('/notifications/:notificationId/read', verifyToken, NotificationContr
 
 // listings
 router.get('/listings', ListingController.list);
+router.get('/listings/manage', verifyToken, ListingController.manage);
+router.get('/listings/:listingId', ListingController.getById);
 router.post('/listings', verifyToken, ListingController.create);
+router.put('/listings/:listingId', verifyToken, ListingController.update);
+router.delete('/listings/:listingId', verifyToken, ListingController.remove);
+router.put('/listings/:listingId/status', verifyToken, ListingController.review);
 router.post('/listings/:listingId/contact', verifyToken, ListingController.contact);
 
 // orders

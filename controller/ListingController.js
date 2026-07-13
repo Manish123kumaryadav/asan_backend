@@ -38,14 +38,42 @@ function toListing(row) {
     sellerRating: Number(row.seller_rating || 4.5),
     paymentUpiMasked: row.payment_upi_masked || "hidden",
     image: row.image_path || "",
+    status: row.status === "active" ? "approved" : row.status,
+    sellerId: String(row.seller_id),
     postedAt: row.created_at ? new Date(row.created_at).toLocaleString("en-IN") : "Just now",
   };
+}
+
+function listingPayload(body) {
+  return {
+    title: body.title,
+    category: body.category,
+    mode: body.mode || body.type || "old",
+    condition: body.condition || "Good",
+    price: body.price || body.rentalRate || 0,
+    rent_unit: body.rentUnit || (body.mode === "rental" || body.type === "rental" ? "day" : null),
+    location: body.location || "Not specified",
+    available_from: body.availableFrom,
+    available_to: body.availableTo,
+    delivery_time: body.deliveryTime,
+    return_policy: body.returnPolicy || "not-available",
+    return_policy_text: body.returnPolicyText,
+    description: body.description,
+    payment_upi_masked: body.paymentUpiMasked || maskUpi(body.upi),
+    payment_upi: body.upi || null,
+    image_path: body.image,
+    updated_at: new Date(),
+  };
+}
+
+function canManage(req, listing) {
+  return Number(req.user?.role_id) === 1 || String(listing.seller_id) === String(req.user?.id);
 }
 
 exports.list = async (req, res) => {
   try {
     const rows = await Listing.findAll({
-      where: { status: "active" },
+      where: { status: { [Op.in]: ["active", "approved"] } },
       order: [["created_at", "DESC"]],
       limit: Number(req.query.limit || 100),
     });
@@ -69,33 +97,80 @@ exports.create = async (req, res) => {
     }
 
     const row = await Listing.create({
+      ...listingPayload(body),
       seller_id: userId,
-      title: body.title,
-      category: body.category,
-      mode: body.mode,
-      condition: body.condition,
-      price: body.price,
-      rent_unit: body.rentUnit,
-      location: body.location,
-      available_from: body.availableFrom,
-      available_to: body.availableTo,
-      delivery_time: body.deliveryTime,
-      return_policy: body.returnPolicy,
-      return_policy_text: body.returnPolicyText,
-      description: body.description,
       seller_name: user.name,
       seller_phone: user.phone || user.mobile,
       seller_rating: 4.5,
-      payment_upi_masked: body.paymentUpiMasked || maskUpi(body.upi),
-     
-      image_path: body.image,
-      status: "active",
+      status: "pending",
       created_at: new Date(),
-      updated_at: new Date(),
     });
 
     await user.update({ active_ads: Number(user.active_ads || 0) + 1, updated_at: new Date() });
     return res.status(201).json({ success: true, data: toListing(row) });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.manage = async (req, res) => {
+  try {
+    const where = Number(req.user?.role_id) === 1 ? {} : { seller_id: req.user.id };
+    const rows = await Listing.findAll({ where, order: [["created_at", "DESC"]] });
+    return res.json({ success: true, data: rows.map(toListing) });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.getById = async (req, res) => {
+  try {
+    const row = await Listing.findByPk(req.params.listingId);
+    if (!row) return res.status(404).json({ success: false, message: "Listing not found" });
+    return res.json({ success: true, data: toListing(row) });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.update = async (req, res) => {
+  try {
+    const row = await Listing.findByPk(req.params.listingId);
+    if (!row) return res.status(404).json({ success: false, message: "Listing not found" });
+    if (!canManage(req, row)) return res.status(403).json({ success: false, message: "You cannot update this product" });
+    const payload = listingPayload(req.body);
+    Object.keys(payload).forEach((key) => payload[key] === undefined && delete payload[key]);
+    if (Number(req.user.role_id) !== 1) payload.status = "pending";
+    await row.update(payload);
+    return res.json({ success: true, message: "Product updated successfully", data: toListing(row) });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.remove = async (req, res) => {
+  try {
+    const row = await Listing.findByPk(req.params.listingId);
+    if (!row) return res.status(404).json({ success: false, message: "Listing not found" });
+    if (!canManage(req, row)) return res.status(403).json({ success: false, message: "You cannot delete this product" });
+    await row.destroy();
+    const user = await User.findByPk(row.seller_id);
+    if (user) await user.update({ active_ads: Math.max(0, Number(user.active_ads || 0) - 1), updated_at: new Date() });
+    return res.json({ success: true, message: "Product deleted successfully" });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+exports.review = async (req, res) => {
+  try {
+    if (Number(req.user?.role_id) !== 1) return res.status(403).json({ success: false, message: "Admin access required" });
+    const status = req.body.status === "approved" ? "active" : req.body.status;
+    if (!["active", "pending", "rejected"].includes(status)) return res.status(400).json({ success: false, message: "Invalid status" });
+    const row = await Listing.findByPk(req.params.listingId);
+    if (!row) return res.status(404).json({ success: false, message: "Listing not found" });
+    await row.update({ status, updated_at: new Date() });
+    return res.json({ success: true, message: `Product ${req.body.status}`, data: toListing(row) });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
