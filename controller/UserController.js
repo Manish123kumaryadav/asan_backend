@@ -1,6 +1,4 @@
 const User = require("../model/User");
-const bcrypt = require('bcryptjs');
-const { emailHash, generateGuid, normalizeEmail, ensureUserIdentity } = require("../utils/userIdentity");
 const { Op } = require("sequelize");
 
 const USER_FIELDS = [
@@ -8,6 +6,7 @@ const USER_FIELDS = [
   "email",
   "mobile",
   "phone",
+  "password",
   "image",
   "image_path",
   "avatar_url",
@@ -20,60 +19,98 @@ const USER_FIELDS = [
   "is_deleted",
 ];
 
-function buildUserPayload(body, includePassword = false) {
+// Request body se allowed fields nikalna
+function buildUserPayload(body = {}) {
   const payload = {};
 
-  for (const field of USER_FIELDS) {
-    if (body[field] !== undefined) payload[field] = body[field];
+  USER_FIELDS.forEach((field) => {
+    if (body[field] !== undefined) {
+      payload[field] = body[field];
+    }
+  });
+
+  // Mobile aur phone ko sync karna
+  if (!payload.phone && payload.mobile) {
+    payload.phone = payload.mobile;
   }
 
+  if (!payload.mobile && payload.phone) {
+    payload.mobile = payload.phone;
+  }
+
+  // Email ko simple lowercase karna
   if (payload.email) {
-    payload.email = normalizeEmail(payload.email);
-    payload.email_hash = emailHash(payload.email);
+    payload.email = String(payload.email).trim().toLowerCase();
   }
-
-  if (!payload.phone && payload.mobile) payload.phone = payload.mobile;
-  if (!payload.mobile && payload.phone) payload.mobile = payload.phone;
-  if (includePassword && body.password) payload.password = body.password;
 
   return payload;
 }
 
-function userWhere(identifier) {
+// ID, GUID ya email se user search karna
+function getUserWhere(identifier) {
   const value = String(identifier || "").trim();
-  const normalized = normalizeEmail(value);
-  const hash = emailHash(normalized);
+
   const conditions = [
     { guid: value },
-    { email: normalized },
-    { email: value },
-    { email_hash: hash },
-    { email_hash: value },
+    { email: value.toLowerCase() },
   ];
+
   if (/^\d+$/.test(value)) {
     conditions.push({ id: Number(value) });
   }
-  return { [Op.or]: conditions };
+
+  return {
+    [Op.or]: conditions,
+    is_deleted: false,
+  };
 }
 
+// Get all users
 exports.getAllUsers = async (req, res) => {
   try {
-    const users = await User.findAll();
-    res.status(200).json({ success: true, users });
+    const users = await User.findAll({
+      where: {
+        is_deleted: false,
+      },
+      order: [["id", "DESC"]],
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Users fetched successfully",
+      data: users,
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Get users error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 
+// Create user
 exports.createUser = async (req, res) => {
   try {
-    const payload = buildUserPayload(req.body, true);
+    const {
+      name,
+      email_hash,
+      password,
+    } = req.body;
 
-    
-    // Check existing email
+    if (!name || !email_hash   || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Name, email and password are required",
+      });
+    }
+
+    const normalizedEmail = String(email_hash).trim().toLowerCase();
+
     const existingUser = await User.findOne({
       where: {
-        email_hash: payload.email_hash,
+        email_hash: normalizedEmail,
         is_deleted: false,
       },
     });
@@ -85,88 +122,217 @@ exports.createUser = async (req, res) => {
       });
     }
 
-    payload.guid = generateGuid();
-    payload.password = await bcrypt.hash(payload.password, 10);
+    const payload = buildUserPayload(req.body);
+
+    payload.email_hash = normalizedEmail;
+
+    // Plain password save hoga
+    payload.password = password;
+
+    payload.guid = `USER-${Date.now()}-${Math.floor(
+      Math.random() * 10000
+    )}`;
+
+    payload.is_deleted = false;
     payload.created_at = new Date();
     payload.updated_at = new Date();
-    payload.is_deleted = false;
 
     const user = await User.create(payload);
 
     return res.status(201).json({
       success: true,
       message: "User created successfully",
-      data: {
-        id: user.id,
-        guid: user.guid,
-        name: user.name,
-        email: user.email,
-        mobile: user.mobile,
-        phone: user.phone,
-        role_id: user.role_id,
-        plan: user.plan,
-      },
+      data: user,
     });
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error("Create user error:", error);
 
     return res.status(500).json({
       success: false,
-      message: err.message,
+      message: error.message,
     });
   }
 };
+
+// Get single user
 exports.getUserById = async (req, res) => {
   try {
-    const user = await User.findOne({ where: userWhere(req.params.id) });
+    const user = await User.findOne({
+      where: getUserWhere(req.params.id),
+    });
+
     if (!user) {
-      return res.status(404).json({ success: false, message: 'User not found' });
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
-    await ensureUserIdentity(user);
-    res.status(200).json({ success: true, user });
+
+    return res.status(200).json({
+      success: true,
+      message: "User fetched successfully",
+      data: user,
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+    console.error("Get user error:", error);
 
-}
-
-exports.updateUser = async (req, res) => {
-  try {
-    const payload = buildUserPayload(req.body, false);
-    if (req.body.password) {
-      payload.password = await bcrypt.hash(req.body.password, 10);
-    }
-    payload.updated_at = new Date();
-
-    const [updated] = await User.update(payload, { where: userWhere(req.params.id) });
-    if (!updated) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-    res.status(200).json({ success: true, message: 'User updated successfully' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
 
+// Update user by ID, GUID or email
+exports.updateUser = async (req, res) => {
+  try {
+    const user = await User.findOne({
+      where: getUserWhere(req.params.id),
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const payload = buildUserPayload(req.body);
+
+    // Updated email kisi dusre user ki nahi honi chahiye
+    if (payload.email) {
+      const existingUser = await User.findOne({
+        where: {
+          email_hash: payload.email_hash,
+          id: {
+            [Op.ne]: user.id,
+          },
+          is_deleted: false,
+        },
+      });
+
+      if (existingUser) {
+        return res.status(409).json({
+          success: false,
+          message: "Email already exists",
+        });
+      }
+    }
+
+    payload.updated_at = new Date();
+
+    await user.update(payload);
+
+    return res.status(200).json({
+      success: true,
+      message: "User updated successfully",
+      data: user,
+    });
+  } catch (error) {
+    console.error("Update user error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// Update logged-in user
 exports.updateCurrentUser = async (req, res) => {
   try {
     const userId = req.user?.id;
+
     if (!userId) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
     }
-    const payload = buildUserPayload(req.body, false);
-    if (req.body.password) {
-      payload.password = await bcrypt.hash(req.body.password, 10);
+
+    const user = await User.findOne({
+      where: {
+        id: userId,
+        is_deleted: false,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
     }
+
+    const payload = buildUserPayload(req.body);
+
+    if (payload.email) {
+      const existingUser = await User.findOne({
+        where: {
+          email_hash: payload.email_hash,
+          id: {
+            [Op.ne]: userId,
+          },
+          is_deleted: false,
+        },
+      });
+
+      if (existingUser) {
+        return res.status(409).json({
+          success: false,
+          message: "Email already exists",
+        });
+      }
+    }
+
     payload.updated_at = new Date();
 
-    const [updated] = await User.update(payload, { where: { id: userId } });
-    if (!updated) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-    const user = await User.findByPk(userId);
-    res.status(200).json({ success: true, message: 'User updated successfully', user });
+    await user.update(payload);
+
+    return res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: user,
+    });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Update current user error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+// Soft delete user
+exports.deleteUser = async (req, res) => {
+  try {
+    const user = await User.findOne({
+      where: getUserWhere(req.params.id),
+    });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    await user.update({
+      is_deleted: true,
+      updated_at: new Date(),
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "User deleted successfully",
+    });
+  } catch (error) {
+    console.error("Delete user error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
   }
 };
