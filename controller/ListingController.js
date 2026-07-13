@@ -4,6 +4,8 @@ const ContactView = require("../model/ContactView");
 const { Op } = require("sequelize");
 const NewAdDetail = require("../model/NewAdDetail");
 const OldAdDetail = require("../model/OldAdDetail");
+const Notification = require("../model/Notification");
+const { sendToUser } = require("../utils/realtime");
 
 const CONTACT_LIMITS = {
   free: 0,
@@ -83,13 +85,13 @@ function listingPayload(body) {
 }
 
 function isNewProduct(condition) { return ["new", "brand new"].includes(String(condition || "").toLowerCase()); }
-async function syncAdDetail(row, user) {
+async function syncAdDetail(row, user, transaction) {
   const Target = isNewProduct(row.condition) ? NewAdDetail : OldAdDetail;
   const Other = Target === NewAdDetail ? OldAdDetail : NewAdDetail;
-  await Other.destroy({ where: { listing_id: row.id } });
+  await Other.destroy({ where: { listing_id: row.id }, transaction });
   const data = { ad_uid: `${user.guid}-${row.id}`, uid: user.guid, listing_id: row.id, title: row.title, category: row.category, type: ["rent", "rental"].includes(String(row.mode).toLowerCase()) ? "rent" : "sell", mode: row.mode, condition: row.condition, price: row.price, location: row.location, image_paths: row.image_path, status: row.status, is_deleted: 0, is_active: ["active", "approved"].includes(row.status) ? 1 : 0, is_sold_out: 0, is_coming_soon: 0, updated_at: new Date() };
-  const existing = await Target.findOne({ where: { listing_id: row.id } });
-  if (existing) await existing.update(data); else await Target.create({ ...data, created_at: row.created_at || new Date() });
+  const existing = await Target.findOne({ where: { listing_id: row.id }, transaction });
+  if (existing) await existing.update(data, { transaction }); else await Target.create({ ...data, created_at: row.created_at || new Date() }, { transaction });
 }
 
 function canManage(req, listing) {
@@ -153,7 +155,7 @@ exports.manage = async (req, res) => {
 
 exports.getById = async (req, res) => {
   try {
-    const row = await Listing.findByPk(req.params.listingId);
+    const row = await Listing.findOne({ where: { id: req.params.listingId, status: { [Op.in]: ["active", "approved"] } } });
     if (!row) return res.status(404).json({ success: false, message: "Listing not found" });
     return res.json({ success: true, data: toListing(row) });
   } catch (error) {
@@ -193,17 +195,39 @@ exports.remove = async (req, res) => {
 };
 
 exports.review = async (req, res) => {
+  let transaction;
   try {
     if (Number(req.user?.role_id) !== 1) return res.status(403).json({ success: false, message: "Admin access required" });
-    const status = req.body.status === "approved" ? "active" : req.body.status;
-    if (!["active", "pending", "rejected"].includes(status)) return res.status(400).json({ success: false, message: "Invalid status" });
-    const row = await Listing.findByPk(req.params.listingId);
-    if (!row) return res.status(404).json({ success: false, message: "Listing not found" });
-    await row.update({ status, updated_at: new Date() });
-    const owner = await User.findByPk(row.seller_id);
-    if (owner) await syncAdDetail(row, owner);
-    return res.json({ success: true, message: `Product ${req.body.status}`, data: toListing(row) });
+    const decision = String(req.body.status || "").toLowerCase();
+    if (!["approved", "rejected"].includes(decision)) return res.status(400).json({ success: false, message: "Status must be approved or rejected" });
+    const rejectionReason = String(req.body.rejectionReason || "").trim();
+    if (decision === "rejected" && rejectionReason.length < 3) return res.status(400).json({ success: false, message: "Rejection reason is required" });
+    transaction = await Listing.sequelize.transaction();
+    const row = await Listing.findByPk(req.params.listingId, { transaction, lock: transaction.LOCK.UPDATE });
+    if (!row) { await transaction.rollback(); return res.status(404).json({ success: false, message: "Listing not found" }); }
+    if (row.status !== "pending") { await transaction.rollback(); return res.status(409).json({ success: false, message: `Only pending products can be reviewed. Current status: ${row.status}` }); }
+    const status = decision === "approved" ? "active" : "rejected";
+    await row.update({ status, updated_at: new Date() }, { transaction });
+    const owner = await User.findByPk(row.seller_id, { transaction });
+    if (owner) await syncAdDetail(row, owner, transaction);
+    const notification = await Notification.create({
+      user_id: row.seller_id,
+      title: decision === "approved" ? "Product approved" : "Product rejected",
+      body: decision === "approved"
+        ? `${row.title} is now live on Aashanway.`
+        : `${row.title} was rejected. Reason: ${rejectionReason}`,
+      icon: decision === "approved" ? "check_circle" : "cancel",
+      is_read: false,
+      created_at: new Date(),
+    }, { transaction });
+    await transaction.commit();
+    sendToUser(row.seller_id, "notification:new", {
+      id: String(notification.id), title: notification.title, body: notification.body,
+      icon: notification.icon, read: false, createdAt: "Now",
+    });
+    return res.json({ success: true, message: `Product ${decision} successfully`, data: toListing(row) });
   } catch (error) {
+    if (transaction && !transaction.finished) await transaction.rollback();
     return res.status(500).json({ success: false, message: error.message });
   }
 };
@@ -212,6 +236,7 @@ exports.contact = async (req, res) => {
   try {
     const listing = await Listing.findByPk(req.params.listingId);
     if (!listing) return res.status(404).json({ success: false, message: "Listing not found" });
+    if (!["active", "approved"].includes(listing.status)) return res.status(404).json({ success: false, message: "Listing not found" });
 
     const viewer = await User.findByPk(req.user.id);
     if (!viewer) return res.status(404).json({ success: false, message: "User not found" });
