@@ -11,6 +11,9 @@ const Order = sequelize.define("Order", {
   status: DataTypes.STRING,
   eta: DataTypes.STRING,
   tracking: DataTypes.JSONB,
+  payment_method: { type: DataTypes.STRING, defaultValue: "cod" },
+  fulfillment_mode: { type: DataTypes.STRING, defaultValue: "delivery" },
+  delivery_address: DataTypes.TEXT,
   created_at: DataTypes.DATE,
   updated_at: DataTypes.DATE,
 }, {

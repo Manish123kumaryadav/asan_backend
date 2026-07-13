@@ -33,7 +33,38 @@ async function toOrder(row) {
     eta: row.eta,
     createdAt: row.created_at ? new Date(row.created_at).toLocaleString("en-IN") : "Now",
     tracking: row.tracking || (listing ? buildTracking(listing, row.status) : []),
+    paymentMethod: row.payment_method || "cod",
+    deliveryAddress: row.delivery_address || "",
   };
+}
+
+async function quoteItems(items) {
+  const quoted = [];
+  for (const item of items) {
+    const listing = await Listing.findByPk(item.listingId);
+    if (!listing || !["active", "approved"].includes(listing.status)) continue;
+    const quantity = Math.max(1, Math.min(10, Number(item.quantity || 1)));
+    const unitPrice = Number(listing.price || 0);
+    const platformFee = 19;
+    const deliveryFee = unitPrice > 10000 ? 0 : 49;
+    quoted.push({ listing, quantity, unitPrice, platformFee, deliveryFee, total: unitPrice * quantity + platformFee + deliveryFee });
+  }
+  return quoted;
+}
+
+async function createOrdersForItems({ userId, items, paymentMethod = "cod", deliveryAddress = "", paymentReference = "" }) {
+  const quoted = await quoteItems(items);
+  const created = [];
+  const reference = String(paymentReference || Date.now()).replace(/[^a-zA-Z0-9]/g, "").slice(-12).toUpperCase();
+  for (let index = 0; index < quoted.length; index += 1) {
+    const item = quoted[index];
+    const orderCode = `ORD${reference}${index + 1}`;
+    let row = await Order.findOne({ where: { order_code: orderCode, user_id: userId } });
+    if (!row) row = await Order.create({ order_code: orderCode, user_id: userId, listing_id: item.listing.id, quantity: item.quantity, total: item.total, status: "placed", eta: item.listing.mode && item.listing.mode.includes("rent") ? "Pickup today by 7:30 PM" : "Arriving in 2-3 days", tracking: buildTracking(item.listing, "placed"), payment_method: paymentMethod, fulfillment_mode: "delivery", delivery_address: deliveryAddress, created_at: new Date(), updated_at: new Date() });
+    created.push(await toOrder(row));
+  }
+  if (created.length) await Notification.create({ user_id: userId, title: "Order placed", body: `${created.length} order live tracking ke liye ready hai.`, icon: "cube", is_read: false, created_at: new Date() });
+  return created;
 }
 
 exports.list = async (req, res) => {
@@ -51,42 +82,16 @@ exports.create = async (req, res) => {
     const items = Array.isArray(req.body.items) ? req.body.items : [];
     if (!items.length) return res.status(400).json({ success: false, message: "Cart items are required" });
 
-    const created = [];
-    for (const item of items) {
-      const listing = await Listing.findByPk(item.listingId);
-      if (!listing) continue;
-      const quantity = Number(item.quantity || 1);
-      const total = Number(listing.price || 0) * quantity + 19 + (Number(listing.price || 0) > 10000 ? 0 : 49);
-      const status = "placed";
-      const row = await Order.create({
-        order_code: `ORD${Date.now()}${Math.floor(Math.random() * 1000)}`,
-        user_id: req.user.id,
-        listing_id: listing.id,
-        quantity,
-        total,
-        status,
-        eta: listing.mode && listing.mode.includes("rent") ? "Pickup today by 7:30 PM" : "Arriving in 2-3 days",
-        tracking: buildTracking(listing, status),
-        created_at: new Date(),
-        updated_at: new Date(),
-      });
-      created.push(await toOrder(row));
-    }
-
-    await Notification.create({
-      user_id: req.user.id,
-      title: "Order placed",
-      body: `${created.length} order live tracking ke liye ready hai.`,
-      icon: "cube",
-      is_read: false,
-      created_at: new Date(),
-    });
+    const created = await createOrdersForItems({ userId: req.user.id, items, paymentMethod: "cod", deliveryAddress: req.body.deliveryAddress || "" });
 
     return res.status(201).json({ success: true, data: { orders: created } });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+exports.quoteItems = quoteItems;
+exports.createOrdersForItems = createOrdersForItems;
 
 exports.track = async (req, res) => {
   try {

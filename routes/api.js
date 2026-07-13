@@ -59,6 +59,7 @@ router.get('/orders/:orderId/track', verifyToken, OrderController.track);
 
 // payments
 router.post('/payments/upi-intent', verifyToken, PaymentController.createUpiIntent);
+router.post('/payments/razorpay/order', verifyToken, PaymentController.createRazorpayOrder);
 router.post('/payments/verify', verifyToken, PaymentController.verify);
 
 // calls
