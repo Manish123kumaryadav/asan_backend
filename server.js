@@ -17,7 +17,7 @@ attachRealtime(server);
 // parses JSON
 // app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
-  const allowed = (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:5173').split(',');
+  const allowed = (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:5173,https://aashan-front-3dz3.vercel.app/').split(',');
   const origin = req.headers.origin;
   if (origin && allowed.includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
