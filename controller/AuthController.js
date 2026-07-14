@@ -11,7 +11,7 @@ const buildOtpPayload = (otp) => `${otp}:${Date.now() + OTP_EXPIRES_IN_MS}`;
 const validateOtpPayload = (saved, otp) => { const [code, expires] = String(saved || "").split(":"); return code === String(otp) && Number(expires) > Date.now(); };
 
 function createToken(user) {
-  return jwt.sign({ id: user.id, guid: user.guid, role_id: user.role_id, name: user.name, email_hash: user.email_hash }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || "1h" });
+  return jwt.sign({ id: user.id, guid: user.guid, role_id: user.role_id, name: user.name, email_hash: user.email_hash }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || "24h" });
 }
 
 function publicUser(user) {

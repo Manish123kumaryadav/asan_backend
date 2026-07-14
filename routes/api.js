@@ -11,6 +11,7 @@ const OrderController = require('../controller/OrderController');
 const PaymentController = require('../controller/PaymentController');
 const CallController = require('../controller/CallController');
 const MediaController = require('../controller/MediaController');
+const LocationController = require('../controller/LocationController');
 // login
 router.post('/login', AuthController.login);
 router.post('/send-login-otp', AuthController.sendLoginOtp);
@@ -71,5 +72,8 @@ router.put('/calls/preferences', verifyToken, CallController.updatePreferences);
 router.post('/media/upload/product', verifyToken, MediaController.upload('product'));
 router.post('/media/upload/avatar', verifyToken, MediaController.upload('avatar'));
 router.get('/media/object/:bucket/:userGuid/:fileName', MediaController.object);
+
+// location
+router.get('/location/reverse', LocationController.reverse);
 
 module.exports=router;
