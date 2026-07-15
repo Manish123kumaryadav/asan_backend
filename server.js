@@ -23,11 +23,20 @@ const allowedOrigins = new Set(
     .filter(Boolean)
 );
 
+function isAllowedOrigin(origin) {
+  if (!origin) return false;
+  const normalizedOrigin = origin.replace(/\/$/, '');
+  if (allowedOrigins.has(normalizedOrigin)) return true;
+
+  // Vercel uses a different hostname for production aliases and preview deploys.
+  // Only HTTPS subdomains of vercel.app are accepted here.
+  return /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(normalizedOrigin);
+}
+
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  const normalizedOrigin = origin?.replace(/\/$/, '');
 
-  if (normalizedOrigin && allowedOrigins.has(normalizedOrigin)) {
+  if (isAllowedOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   }
 
