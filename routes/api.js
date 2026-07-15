@@ -36,6 +36,7 @@ router.get('/subscriber-dashboard', verifyToken, SubscriptionController.dashboar
 router.post('/subscriber-dashboard', verifyToken, SubscriptionController.dashboard);
 
 // chat and notifications
+router.post('/chat/listings/:listingId', verifyToken, ChatController.openForListing);
 router.get('/chat/conversations', verifyToken, ChatController.conversations);
 router.get('/chat/conversations/:conversationId/messages', verifyToken, ChatController.messages);
 router.post('/chat/conversations/:conversationId/messages', verifyToken, ChatController.createMessage);

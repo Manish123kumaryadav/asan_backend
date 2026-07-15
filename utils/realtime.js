@@ -1,68 +1,51 @@
 const jwt = require("jsonwebtoken");
-const { WebSocketServer } = require("ws");
+const { Server } = require("socket.io");
 
-const clientsByUser = new Map();
+let io;
 
-function addClient(userId, ws) {
-  const key = String(userId);
-  if (!clientsByUser.has(key)) clientsByUser.set(key, new Set());
-  clientsByUser.get(key).add(ws);
-
-  ws.on("close", () => {
-    const clients = clientsByUser.get(key);
-    if (!clients) return;
-    clients.delete(ws);
-    if (clients.size === 0) clientsByUser.delete(key);
-  });
-}
-
-function sendToUser(userId, event, data) {
-  const clients = clientsByUser.get(String(userId));
-  if (!clients) return;
-
-  const message = JSON.stringify({ event, data });
-  for (const ws of clients) {
-    if (ws.readyState === ws.OPEN) ws.send(message);
-  }
+function allowedOrigin(origin) {
+  if (!origin) return true;
+  const normalized = origin.replace(/\/$/, "");
+  const configured = (process.env.CORS_ORIGINS || "http://localhost:3000,http://localhost:5173")
+    .split(",")
+    .map((value) => value.trim().replace(/\/$/, ""));
+  return configured.includes(normalized) || /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(normalized);
 }
 
 function attachRealtime(server) {
-  const wss = new WebSocketServer({ server, path: "/api/ws" });
+  io = new Server(server, {
+    cors: {
+      origin(origin, callback) {
+        callback(allowedOrigin(origin) ? null : new Error("Origin not allowed"), allowedOrigin(origin));
+      },
+      methods: ["GET", "POST"],
+    },
+  });
 
-  wss.on("connection", (ws, req) => {
+  io.use((socket, next) => {
     try {
-      const url = new URL(req.url, "http://localhost");
-      const token = url.searchParams.get("token");
-      if (!token) {
-        ws.close(1008, "Token required");
-        return;
-      }
-
-      const user = jwt.verify(token, process.env.JWT_SECRET);
-      addClient(user.id, ws);
-      ws.send(JSON.stringify({ event: "connected", data: { userId: user.id } }));
-
-      ws.on("message", (payload) => {
-        let message;
-        try {
-          message = JSON.parse(payload.toString());
-        } catch {
-          return;
-        }
-
-        if (message.event === "ping") {
-          ws.send(JSON.stringify({ event: "pong", data: { at: new Date().toISOString() } }));
-        }
-      });
+      const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+      if (!token) return next(new Error("Token required"));
+      socket.user = jwt.verify(token, process.env.JWT_SECRET);
+      return next();
     } catch {
-      ws.close(1008, "Invalid token");
+      return next(new Error("Invalid or expired token"));
     }
   });
 
-  return wss;
+  io.on("connection", (socket) => {
+    socket.join(`user:${socket.user.id}`);
+    socket.emit("connected", { userId: socket.user.id });
+    socket.on("ping", (callback) => {
+      if (typeof callback === "function") callback({ at: new Date().toISOString() });
+    });
+  });
+
+  return io;
 }
 
-module.exports = {
-  attachRealtime,
-  sendToUser,
-};
+function sendToUser(userId, event, data) {
+  if (io && userId) io.to(`user:${userId}`).emit(event, data);
+}
+
+module.exports = { attachRealtime, sendToUser };
