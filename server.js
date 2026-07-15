@@ -16,12 +16,27 @@ attachRealtime(server);
 
 // parses JSON
 // app.use(express.urlencoded({ extended: true }));
+const allowedOrigins = new Set(
+  (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:5173,https://aashan-front-3dz3.vercel.app')
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/$/, ''))
+    .filter(Boolean)
+);
+
 app.use((req, res, next) => {
-  const allowed = (process.env.CORS_ORIGINS || 'http://localhost:3000,http://localhost:5173,https://aashan-front-3dz3.vercel.app/').split(',');
   const origin = req.headers.origin;
-  if (origin && allowed.includes(origin)) res.setHeader('Access-Control-Allow-Origin', origin);
+  const normalizedOrigin = origin?.replace(/\/$/, '');
+
+  if (normalizedOrigin && allowedOrigins.has(normalizedOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+
+  // Origin-dependent responses must not be reused for a different website.
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Max-Age', '86400');
+
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
